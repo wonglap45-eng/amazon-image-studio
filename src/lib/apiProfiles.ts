@@ -287,7 +287,7 @@ export function createDefaultOpenAIProfile(overrides: Partial<ApiProfile> = {}):
     apiMode: 'images',
     codexCli: false,
     apiProxy: DEFAULT_OPENAI_API_PROXY,
-    streamImages: true,
+    streamImages: false,
     streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
     ...overrides,
   }
@@ -628,7 +628,7 @@ function isDefaultOpenAIProfile(profile: ApiProfile): boolean {
     profile.apiMode === 'images' &&
     profile.codexCli === false &&
     profile.apiProxy === DEFAULT_OPENAI_API_PROXY &&
-    profile.streamImages === true &&
+    profile.streamImages === false &&
     profile.streamPartialImages === DEFAULT_STREAM_PARTIAL_IMAGES
 }
 
@@ -784,7 +784,7 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   apiMode: 'images',
   codexCli: false,
   apiProxy: DEFAULT_OPENAI_API_PROXY,
-  streamImages: true,
+  streamImages: false,
   streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
   customProviders: [],
   clearInputAfterSubmit: false,
