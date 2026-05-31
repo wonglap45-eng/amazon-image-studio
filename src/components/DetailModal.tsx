@@ -265,7 +265,7 @@ export default function DetailModal() {
   }
 
   const handleEdit = () => {
-    editOutputs(task)
+    editOutputs(task, currentOutputImageId || undefined)
     setDetailTaskId(null)
   }
 

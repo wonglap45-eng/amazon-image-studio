@@ -223,20 +223,27 @@ describe('mask draft lifecycle in store actions', () => {
     })
   })
 
-  it('preserves an existing mask when quick edit-output adds outputs as references', async () => {
+  it('replaces the current draft with one output image when quick editing output', async () => {
+    await putImage(imageB)
     const maskDraft = {
       targetImageId: imageA.id,
       maskDataUrl: 'data:image/png;base64,mask',
       updatedAt: 1,
     }
     useStore.setState({
+      prompt: 'old prompt',
       inputImages: [imageA],
       maskDraft,
+      maskEditorImageId: imageA.id,
     })
 
-    await editOutputs(task({ outputImages: [imageA.id] }))
+    await editOutputs(task({ outputImages: [imageB.id] }))
 
-    expect(useStore.getState().maskDraft).toEqual(maskDraft)
+    const state = useStore.getState()
+    expect(state.prompt).toBe('')
+    expect(state.inputImages).toEqual([imageB])
+    expect(state.maskDraft).toBeNull()
+    expect(state.maskEditorImageId).toBeNull()
   })
 
   it('clears an invalid mask draft when submit cannot find the mask target image', async () => {

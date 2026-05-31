@@ -16,6 +16,8 @@ const APLUS_REFERENCE_NOTES = [
   'Premium A+ upload size references: Hero Banner 1464x600, Single/Feature Image 970x600, Logo Image 600x180, Brand Story module image around 463x625.',
   'Design reference: keep key content in a central safe area, use mobile-readable copy, clear hierarchy, balanced spacing, and coherent lighting, color palette, composition logic, material treatment, and typography direction across modules.',
   'A+ should be unique to the product and brand story; avoid simply reusing the same images already planned for the listing carousel.',
+  'A+ may use one helpful brand mark and may use a Logo Image module for an existing brand mark; do not invent partner logos or extra marks.',
+  'Trademark/copyright symbols such as TM, ®, or © should only appear when already present on the product packaging or as part of a real logo; otherwise remove standalone symbols.',
   'A+ copy and images should avoid prices, discounts, coupons, free shipping, QR codes, phone numbers, email addresses, postal addresses, external URLs, hyperlinks, customer reviews, star ratings, competitor mentions, seller authorization claims, unsupported guarantees, and aggressive purchase calls to action such as buy now or add to cart.',
   'Avoid unsupported awards, certifications, eco claims, medical/cure/prevention claims, satisfaction guarantees, exaggerated claims such as best/top-rated/bestseller, and time-sensitive hype such as new/latest/sale unless the listing provides defensible substantiation and the placement is allowed.',
   'Do not mimic Amazon page UI or use Amazon, Prime, Alexa, Amazon Choice, Premium Choice, Best Seller, hot-sale badges, or lookalike marketplace marks.',

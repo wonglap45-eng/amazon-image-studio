@@ -23,6 +23,7 @@ interface PlannerApiPayload {
   product?: {
     title?: string
     category?: string
+    brand?: string
     color?: string
     material?: string
     audience?: string
@@ -51,12 +52,13 @@ const PRODUCT_SCHEMA = {
   properties: {
     title: { type: 'string' },
     category: { type: 'string' },
+    brand: { type: 'string' },
     color: { type: 'string' },
     material: { type: 'string' },
     audience: { type: 'string' },
     packageIncludes: { type: 'string' },
   },
-  required: ['title', 'category', 'color', 'material', 'audience', 'packageIncludes'],
+  required: ['title', 'category', 'brand', 'color', 'material', 'audience', 'packageIncludes'],
 } as const
 
 const SELLING_POINTS_SCHEMA = {
@@ -392,6 +394,7 @@ function normalizeParsedListing(payload: PlannerApiPayload): ListingParseResult 
     inferred: {
       productTitle: product.title.trim(),
       category: product.category?.trim() ?? '',
+      ...(product.brand?.trim() ? { brand: product.brand.trim() } : {}),
       color: product.color?.trim() ?? '',
       material: product.material?.trim() ?? '',
       audience: product.audience?.trim() ?? '',
@@ -536,6 +539,10 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
     'For each module, write planMarkdown in Simplified Chinese as a detailed agent-style plan similar to a ChatGPT web response, then write a professional English image prompt and English negative prompt.',
     'Each module prompt should fully plan the finished Amazon image: composition, product evidence, on-image US-English copy when useful, callouts or information areas when useful, visual hierarchy, and rendering style.',
     'For A+ information modules, prefer complete information design with clear hierarchy and useful product evidence; lifestyle or brand modules should still have purposeful composition and visible product support.',
+    baseDraft.brand
+      ? `Known brand/model: ${baseDraft.brand}. For header-banner and hero-banner modules, naturally include this real brand/model as a small brand line, headline prefix, or subline when it improves the composition. For brand-story modules, use this brand/model to frame the brand tone or promise only when supported by the provided listing or brand notes.`
+      : 'If no real brand/model is provided, do not invent a brand name, logo, trademark, brand history, brand promise, authorization claim, website, contact detail, or external link.',
+    'Use brand names as text only unless the user provides a real logo reference image. Do not invent logo artwork, standalone trademark/copyright symbols, brand history, authorization claims, websites, contact details, or external links.',
     'Return one seriesStyleGuide string in English that can keep separately generated modules visually coherent.',
     'Return exactly 3 styleCandidates for low-resolution visual style reference board generation. Each candidate should represent a distinct coherent visual style choice for this same product and A+ set, not a finished Amazon A+ module.',
     'For each styleCandidates.prompt, describe a 1024x1024 visual style reference board with visible typography samples, color palette swatches, lighting/material samples, background/material texture samples, product-finish detail samples, and icon/callout treatment.',
@@ -543,7 +550,6 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
     'For modules that need external A+ text outside the image, write textTitle and textBody in natural US English. Otherwise return empty strings.',
     'Field language rules: label and planMarkdown must be Simplified Chinese; textTitle/textBody must be English or empty; seriesStyleGuide, prompt, negativePrompt, and styleCandidates.prompt/negativePrompt must be English.',
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
-    baseDraft.brand ? `Known brand/model: ${baseDraft.brand}` : '',
   ].filter(Boolean).join('\n')
 }
 

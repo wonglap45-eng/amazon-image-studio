@@ -174,6 +174,7 @@ function createApiPayload(title = 'AI planned tumbler') {
     product: {
       title,
       category: 'Kitchen / Drinkware',
+      brand: '',
       color: 'matte black',
       material: 'stainless steel',
       audience: 'commuters',
@@ -186,7 +187,7 @@ function createApiPayload(title = 'AI planned tumbler') {
   }
 }
 
-function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P') {
+function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P', brand = '') {
   const slots = prefix === 'A+S'
     ? ['A+S01', 'A+S02', 'A+S03', 'A+S04', 'A+S05', 'A+S06', 'A+S07', 'A+S08']
     : prefix === 'A+L'
@@ -204,16 +205,19 @@ function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P') {
     planMarkdown: `## ${slot} 模块方案\n\n中文 A+ 策划说明。`,
     textTitle: prefix === 'A+S' && index >= 4 ? `Benefit ${slot}` : '',
     textBody: prefix === 'A+S' && index >= 4 ? `External A+ copy for ${slot}.` : '',
-    prompt: `Create A+ module ${slot} for the product.`,
+    prompt: brand && index === 0
+      ? `Create A+ module ${slot} for ${brand}, using the brand name as a small headline line.`
+      : `Create A+ module ${slot} for the product.`,
     negativePrompt: `negative ${slot}`,
   }))
 }
 
-function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P', title = 'AI planned A+ tumbler') {
+function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P', title = 'AI planned A+ tumbler', brand = '') {
   return {
     product: {
       title,
       category: 'Kitchen / Drinkware',
+      brand,
       color: 'matte black',
       material: 'stainless steel',
       audience: 'commuters',
@@ -222,7 +226,7 @@ function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P', title = 'AI planned A
     sellingPoints: ['Cold for 24 hours'],
     seriesStyleGuide: 'Use a cohesive A+ visual style across the module set.',
     styleCandidates: createStyleCandidates(),
-    aPlusPlans: createAPlusPlans(prefix),
+    aPlusPlans: createAPlusPlans(prefix, brand),
   }
 }
 
@@ -276,6 +280,7 @@ describe('callAmazonPlannerApi', () => {
     expect(body.text.format.schema.required).toContain('seriesStyleGuide')
     expect(body.text.format.schema.required).toContain('styleCandidates')
     expect(body.text.format.schema.required).not.toContain('visualSystem')
+    expect(body.text.format.schema.properties.product.properties).toHaveProperty('brand')
     expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('planMarkdown')
     expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('negativePrompt')
     expect(body.input[0].content[0].text).toContain('Parse this Amazon listing copy')
@@ -340,7 +345,7 @@ describe('callAmazonPlannerApi', () => {
 
   it('parses Standard A+ output and fills fixed module sizes without deciding content locally', async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
-      output_text: JSON.stringify(createAPlusPayload('A+S', 'Standard A+ tumbler')),
+      output_text: JSON.stringify(createAPlusPayload('A+S', 'Standard A+ tumbler', 'ExampleBrand')),
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -349,7 +354,7 @@ describe('callAmazonPlannerApi', () => {
 
     const result = await callAmazonPlannerApi({
       listingText: SAMPLE_LISTING,
-      baseDraft: DEFAULT_AMAZON_PROMPT_DRAFT,
+      baseDraft: { ...DEFAULT_AMAZON_PROMPT_DRAFT, brand: 'ExampleBrand' },
       profile: createDefaultOpenAIProfile({
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'user-api-key',
@@ -363,6 +368,8 @@ describe('callAmazonPlannerApi', () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body.text.format.name).toBe('amazon_aplus_image_plan')
+    expect(body.text.format.schema.properties.product.properties).toHaveProperty('brand')
+    expect(body.text.format.schema.properties.product.required).toContain('brand')
     expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('planMarkdown')
     expect(body.text.format.schema.properties.aPlusPlans.items.properties).toHaveProperty('negativePrompt')
     expect(body.text.format.schema.required).toContain('seriesStyleGuide')
@@ -381,16 +388,21 @@ describe('callAmazonPlannerApi', () => {
     expect(body.instructions).toContain('lighting/material samples')
     expect(body.instructions).toContain('fully plan the finished Amazon image')
     expect(body.instructions).toContain('complete information design')
+    expect(body.instructions).toContain('Known brand/model: ExampleBrand')
+    expect(body.instructions).toContain('small brand line, headline prefix, or subline')
+    expect(body.instructions).toContain('Do not invent logo artwork')
     expect(body.instructions).not.toContain('sparse copy')
     expect(body.instructions).not.toContain('leave enough whitespace')
     expect(body.instructions).not.toContain('A+ compliance:')
     expect(result.mode).toBe('aplus')
+    expect(result.parsed.inferred.brand).toBe('ExampleBrand')
     expect(result.aPlusPlans).toHaveLength(8)
     expect(result.aPlusPlans[0]).toMatchObject({
       slot: 'A+S01',
       moduleType: 'header-banner',
       uploadSize: '970x300',
       planMarkdown: expect.stringContaining('A+S01 模块方案'),
+      prompt: expect.stringContaining('ExampleBrand'),
     })
     expect(result.aPlusPlans[4]).toMatchObject({
       slot: 'A+S05',
@@ -399,5 +411,33 @@ describe('callAmazonPlannerApi', () => {
       textTitle: 'Benefit A+S05',
       textBody: 'External A+ copy for A+S05.',
     })
+  })
+
+  it('does not include empty A+ brand output in parsed inferred fields', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(createAPlusPayload('A+S', 'Standard A+ tumbler')),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: { ...DEFAULT_AMAZON_PROMPT_DRAFT, brand: 'ExistingBrand' },
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+      mode: 'aplus',
+      aPlusType: 'standard',
+      aPlusGenerationTier: '2K',
+    })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.instructions).toContain('Known brand/model: ExistingBrand')
+    expect(result.parsed.inferred).not.toHaveProperty('brand')
   })
 })

@@ -16,7 +16,7 @@ import { downloadImageIds, formatExportFileTime } from '../lib/downloadImages'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
-import { CloseIcon } from './icons'
+import { CloseIcon, ImportIcon } from './icons'
 
 
 function getMentionTagTextLength(el: Element) {
@@ -1721,6 +1721,7 @@ export default function InputBar() {
 
   const renderClearAllButton = () => (
     <button
+      type="button"
       onClick={() =>
         setConfirmDialog({
           title: maskTargetImage ? '清空全部输入图' : '清空参考图',
@@ -1740,11 +1741,32 @@ export default function InputBar() {
     </button>
   )
 
+  const renderUploadReferenceButton = () => (
+    <button
+      type="button"
+      onClick={() => {
+        if (!atImageLimit) fileInputRef.current?.click()
+      }}
+      disabled={atImageLimit}
+      className={`w-[52px] h-[52px] rounded-xl border border-dashed flex flex-col items-center justify-center gap-0.5 transition-all flex-shrink-0 ${
+        atImageLimit
+          ? 'cursor-not-allowed border-gray-200 bg-gray-50/60 text-gray-300 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-gray-600'
+          : 'cursor-pointer border-blue-300 bg-blue-50/50 text-blue-500 hover:border-blue-400 hover:bg-blue-50 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/15'
+      }`}
+      title={uploadImageTooltipText}
+      aria-label={uploadImageTooltipText}
+    >
+      <ImportIcon className="w-4 h-4" />
+      <span className="text-[8px] leading-none">{atImageLimit ? '已满' : '上传'}</span>
+    </button>
+  )
+
   const renderImageThumbs = () => {
     return (
       <div ref={imagesRef} className="lg:max-h-44 lg:overflow-y-auto lg:overscroll-contain lg:pr-1 custom-scrollbar">
         <div className="grid grid-cols-[repeat(auto-fill,52px)] justify-between gap-x-2 gap-y-3 mb-3">
           {inputImages.map((img, idx) => renderImageThumb(img, idx))}
+          {renderUploadReferenceButton()}
           {renderClearAllButton()}
         </div>
         {touchDragPreview?.src && createPortal(

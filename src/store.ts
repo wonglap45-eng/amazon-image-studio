@@ -3857,25 +3857,31 @@ export async function reuseConfig(task: TaskRecord) {
   )
 }
 
-/** 编辑输出：将输出图加入输入 */
-export async function editOutputs(task: TaskRecord) {
-  const { inputImages, addInputImage, showToast, setPendingTaskCategory } = useStore.getState()
-  if (!task.outputImages?.length) return
+/** 编辑输出：清空当前输入，只保留待编辑的输出图 */
+export async function editOutputs(task: TaskRecord, selectedOutputImageId?: string) {
+  const { showToast, setPendingTaskCategory } = useStore.getState()
+  const outputImageId = selectedOutputImageId && task.outputImages?.includes(selectedOutputImageId)
+    ? selectedOutputImageId
+    : task.outputImages?.[0]
+  if (!outputImageId) return
 
-  let added = 0
-  for (const imgId of task.outputImages) {
-    if (inputImages.find((i) => i.id === imgId)) continue
-    const dataUrl = await ensureImageCached(imgId)
-    if (dataUrl) {
-      addInputImage({ id: imgId, dataUrl })
-      added++
-    }
+  const dataUrl = await ensureImageCached(outputImageId)
+  if (!dataUrl) {
+    showToast('无法读取输出图，请稍后重试', 'error')
+    return
   }
+
+  useStore.setState((state) => syncActiveInputDraft(state, {
+    prompt: '',
+    inputImages: [{ id: outputImageId, dataUrl }],
+    maskDraft: null,
+    maskEditorImageId: null,
+  }))
   setPendingTaskCategory({
     mode: 'next-submit',
     category: createNextSubmitTaskCategory(task),
   })
-  showToast(`已添加 ${added} 张输出图到输入`, 'success')
+  showToast('已准备编辑输出图', 'success')
 }
 
 /** 删除多条任务 */
