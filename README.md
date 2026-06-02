@@ -6,6 +6,12 @@
 
 项目仓库：[Ali-Aria/amazon-image-studio](https://github.com/Ali-Aria/amazon-image-studio)
 
+## 在线体验
+
+- 体验地址：[https://ali-aria.github.io/amazon-image-studio/](https://ali-aria.github.io/amazon-image-studio/)
+- 在线体验不会内置 API Key；生成图片和 AI 策划都需要在右上角设置中填写你自己的 OpenAI 或兼容接口 Key。
+- API Key 保存在当前浏览器本地，不会提交到仓库；如果线上页面加载异常，也可以按下面的“启动项目”在本地运行。
+
 ## 核心功能
 
 - AI 策划 `Main + PT01-PT06`：粘贴标题、五点描述或产品说明后，生成 7 张图片的逐张策划和英文生图提示词。
@@ -282,6 +288,12 @@ Node.js version: 20
 3. 推送到 `main` 后会自动构建并部署。也可以在 `Actions` 页面手动运行 `Deploy to GitHub Pages`，或推送 `v*` 格式的 tag，例如 `v0.1.0`。
 
 项目的 Vite `base` 已设置为 `./`，可以部署在 `https://<username>.github.io/amazon-image-studio/` 这类子路径下。
+
+当前仓库的 GitHub Pages 体验地址：
+
+```text
+https://ali-aria.github.io/amazon-image-studio/
+```
 
 ### Cloudflare Pages
 
