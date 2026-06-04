@@ -17,6 +17,7 @@ import {
   getActiveApiProfile,
   importCustomProviderSettingsFromJson,
   isAmazonPlannerProfile,
+  isOpenRouterImageGenerationProfile,
   isOpenAICompatibleProvider,
   mergeImportedSettings,
   normalizeCustomProviderDefinition,
@@ -1614,7 +1615,11 @@ export default function SettingsModal() {
                   ) : (activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode) === 'responses' ? (
                     <>Responses API 用于 Agent 或 AI 策划等文本/多模态流程；普通生图请切换到 Images API 配置。</>
                   ) : (activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode) === 'chat' ? (
-                    <>Chat Completions 用于 AI 策划文本模型，默认 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{DEFAULT_CHAT_MODEL}</code>；生图请使用 Images API 配置。</>
+                    isOpenRouterImageGenerationProfile(activeProfile) ? (
+                      <>OpenRouter 图片模型通过 Chat Completions 生图；模型需支持 image 输出。</>
+                    ) : (
+                      <>Chat Completions 用于 AI 策划文本模型，默认 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{DEFAULT_CHAT_MODEL}</code>；普通生图请使用 Images API 配置。</>
+                    )
                   ) : (
                     <>Images API 需要使用 GPT Image 模型，例如 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{DEFAULT_IMAGES_MODEL}</code>。</>
                   )}

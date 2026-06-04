@@ -14,6 +14,7 @@ import {
   getAmazonPlannerProfile,
   importCustomProviderDefinitionFromJson,
   importCustomProviderSettingsFromJson,
+  isOpenRouterImageGenerationProfile,
   mergeImportedSettings,
   normalizeSettings,
   switchApiProfileProvider,
@@ -741,5 +742,25 @@ describe('amazon planner profile', () => {
       apiKey: 'planner-key',
       model: 'deepseek-v4-flash',
     })
+  })
+})
+
+describe('OpenRouter image generation profiles', () => {
+  it('recognizes OpenRouter images and chat profiles as image-capable', () => {
+    expect(isOpenRouterImageGenerationProfile(createDefaultOpenAIProfile({
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiMode: 'images',
+    }))).toBe(true)
+    expect(isOpenRouterImageGenerationProfile(createDefaultOpenAIProfile({
+      baseUrl: 'openrouter.ai/api/v1',
+      apiMode: 'chat',
+    }))).toBe(true)
+  })
+
+  it('does not treat non-OpenRouter chat profiles as image-capable', () => {
+    expect(isOpenRouterImageGenerationProfile(createDefaultOpenAIProfile({
+      baseUrl: 'https://api.deepseek.com',
+      apiMode: 'chat',
+    }))).toBe(false)
   })
 })

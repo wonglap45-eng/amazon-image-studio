@@ -36,6 +36,144 @@ describe('callImageApi', () => {
     },
   )
 
+  it('routes OpenRouter Images API profiles through Chat Completions image generation', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      choices: [{
+        message: {
+          role: 'assistant',
+          images: [{
+            type: 'image_url',
+            image_url: { url: 'data:image/png;base64,aW1hZ2U=' },
+          }],
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    const result = await callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: 'google/gemini-2.5-flash-image',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          model: 'google/gemini-2.5-flash-image',
+          apiMode: 'images',
+        })),
+      },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, size: '1024x1024' },
+      inputImageDataUrls: [],
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://openrouter.ai/api/v1/chat/completions',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body).toMatchObject({
+      model: 'google/gemini-2.5-flash-image',
+      messages: [{ role: 'user', content: 'prompt' }],
+      modalities: ['image', 'text'],
+      stream: false,
+      image_config: { aspect_ratio: '1:1' },
+    })
+    expect(result.images).toEqual(['data:image/png;base64,aW1hZ2U='])
+  })
+
+  it('sends OpenRouter chat image prompts with input image blocks', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      choices: [{
+        message: {
+          images: [{
+            image_url: { url: 'data:image/png;base64,ZWRpdA==' },
+          }],
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        baseUrl: 'https://openrouter.ai',
+        model: 'google/gemini-2.5-flash-image',
+        apiMode: 'chat',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          baseUrl: 'https://openrouter.ai',
+          model: 'google/gemini-2.5-flash-image',
+          apiMode: 'chat',
+        })),
+      },
+      prompt: 'edit prompt',
+      params: { ...DEFAULT_PARAMS, size: '1024x1536' },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions')
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.messages[0].content).toEqual([
+      { type: 'text', text: 'edit prompt' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aW5wdXQ=' } },
+    ])
+    expect(body.image_config).toEqual({ aspect_ratio: '2:3' })
+  })
+
+  it('retries OpenRouter image-only models without text modality', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'Unsupported modalities: text' },
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{
+          message: {
+            images: [{
+              image_url: { url: 'data:image/png;base64,aW1hZ2U=' },
+            }],
+          },
+        }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    await callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: 'black-forest-labs/flux.2-pro',
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({
+          ...profile,
+          apiKey: 'test-key',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          model: 'black-forest-labs/flux.2-pro',
+        })),
+      },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).modalities).toEqual(['image', 'text'])
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body)).modalities).toEqual(['image'])
+  })
+
   it('records actual params returned on Images API responses in Codex CLI mode', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       output_format: 'jpeg',

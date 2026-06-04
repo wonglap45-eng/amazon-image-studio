@@ -152,6 +152,8 @@ stop-amazon-image-studio.bat
 - 模型：`gpt-image-2`
 - API Key：填写你自己的 Key
 
+OpenRouter 生图模型不提供 OpenAI `/images/generations` 路径，应用会自动把 `https://openrouter.ai/api/v1` 的生图请求转到 `/chat/completions` 并发送 `modalities`。OpenRouter 示例：API URL 填 `https://openrouter.ai/api/v1`，模型填支持图片输出的模型，例如 `google/gemini-2.5-flash-image`；API 接口选择 `Images API` 或 `Chat Completions` 都可以。遮罩编辑仍需使用支持 `/images/edits` 的接口。
+
 ### 2. AI 策划配置
 
 用于根据 Listing 生成 `Main + PT01-PT06` 或 A+ 模块图片策划。
@@ -245,6 +247,8 @@ stop-amazon-image-studio.bat
 ### 生图失败
 
 检查当前生图配置是否填写了正确的 API URL、API Key、模型和接口类型。生成图片建议使用 `Images API (/v1/images)` + `gpt-image-2`。
+
+如果 OpenRouter 报 404，通常是旧版本请求到了 `/images/generations`。请更新后使用 `https://openrouter.ai/api/v1` 和带 `image` 输出能力的模型；OpenRouter 的图片生成实际走 `/chat/completions`。
 
 ## 构建
 

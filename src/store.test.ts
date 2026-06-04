@@ -304,6 +304,32 @@ describe('mask draft lifecycle in store actions', () => {
     }))
   })
 
+  it('allows gallery submit when the active Chat Completions profile is an OpenRouter image model', async () => {
+    const openRouterProfile = createDefaultOpenAIProfile({
+      id: 'openrouter-image',
+      name: 'OpenRouter 生图',
+      apiKey: 'openrouter-key',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiMode: 'chat',
+      model: 'google/gemini-2.5-flash-image',
+    })
+    useStore.setState({
+      settings: normalizeSettings({
+        profiles: [openRouterProfile],
+        activeProfileId: openRouterProfile.id,
+      }),
+    })
+
+    const submitted = await submitTask()
+
+    const state = useStore.getState()
+    expect(submitted).toBe(true)
+    expect(state.tasks).toHaveLength(1)
+    expect(state.setConfirmDialog).not.toHaveBeenCalledWith(expect.objectContaining({
+      title: '当前配置不能生图',
+    }))
+  })
+
   it('blocks retry with a switch-config dialog when the active profile is Responses API', async () => {
     const responseProfile = createDefaultOpenAIProfile({
       id: 'responses-profile',

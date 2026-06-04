@@ -433,6 +433,27 @@ export function isAmazonPlannerProfile(profile: Pick<ApiProfile, 'provider' | 'a
   return profile.provider === 'openai' && (profile.apiMode === 'responses' || profile.apiMode === 'chat')
 }
 
+export function isOpenRouterImageGenerationProfile(profile: Pick<ApiProfile, 'provider' | 'baseUrl' | 'apiMode'>): boolean {
+  if (profile.provider !== 'openai' || (profile.apiMode !== 'images' && profile.apiMode !== 'chat')) return false
+  const rawBaseUrl = profile.baseUrl.trim()
+  if (!rawBaseUrl) return false
+
+  const input = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(rawBaseUrl)
+    ? rawBaseUrl
+    : `https://${rawBaseUrl}`
+
+  try {
+    const hostname = new URL(input).hostname.toLowerCase()
+    return hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')
+  } catch {
+    return /(^|\.)openrouter\.ai(?:[/:]|$)/i.test(rawBaseUrl)
+  }
+}
+
+export function canApiProfileGenerateImages(profile: Pick<ApiProfile, 'provider' | 'baseUrl' | 'apiMode'>): boolean {
+  return profile.apiMode === 'images' || isOpenRouterImageGenerationProfile(profile)
+}
+
 function resolveAmazonPlannerProfileId(profiles: ApiProfile[], value: unknown): string {
   const requestedId = typeof value === 'string' ? value : ''
   const requestedProfile = requestedId ? profiles.find((profile) => profile.id === requestedId) : undefined

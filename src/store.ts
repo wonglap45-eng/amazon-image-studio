@@ -20,7 +20,7 @@ import type {
   ResponsesOutputItem,
 } from './types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { canApiProfileGenerateImages, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -1955,10 +1955,10 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     }
   }
 
-  if (activeProfile.apiMode !== 'images') {
+  if (!canApiProfileGenerateImages(activeProfile)) {
     setConfirmDialog({
       title: '当前配置不能生图',
-      message: `当前配置「${activeProfile.name}」使用 ${getApiModeApiName(activeProfile.apiMode)}，普通生图只支持 Images API。生成图片前，请切换到 Images API 生图配置。`,
+      message: `当前配置「${activeProfile.name}」使用 ${getApiModeApiName(activeProfile.apiMode)}，普通生图只支持 Images API，OpenRouter 图片模型可使用 Chat Completions。生成图片前，请切换到生图配置。`,
       confirmText: '去切换配置',
       cancelText: '取消',
       action: () => {
@@ -3774,10 +3774,10 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
 export async function retryTask(task: TaskRecord) {
   const { settings, setConfirmDialog } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
-  if (activeProfile.apiMode !== 'images') {
+  if (!canApiProfileGenerateImages(activeProfile)) {
     setConfirmDialog({
       title: '当前配置不能生图',
-      message: `当前配置「${activeProfile.name}」使用 ${getApiModeApiName(activeProfile.apiMode)}，普通生图只支持 Images API。重试图片前，请切换到 Images API 生图配置。`,
+      message: `当前配置「${activeProfile.name}」使用 ${getApiModeApiName(activeProfile.apiMode)}，普通生图只支持 Images API，OpenRouter 图片模型可使用 Chat Completions。重试图片前，请切换到生图配置。`,
       confirmText: '去切换配置',
       cancelText: '取消',
       action: () => {

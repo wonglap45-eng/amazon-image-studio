@@ -1,6 +1,7 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { isOpenRouterImageGenerationProfile } from './apiProfiles'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
@@ -19,6 +20,8 @@ import {
 } from './imageApiShared'
 
 const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
+const OPENROUTER_ASPECT_RATIOS = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])
+const OPENROUTER_MODALITY_RETRY_RE = /modalit|unsupported.*text|text.*unsupported/i
 
 function getStreamPartialImages(profile: ApiProfile): number {
   return profile.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES
@@ -229,6 +232,122 @@ function createResponsesInput(prompt: string, inputImageDataUrls: string[]): unk
   ]
 }
 
+type OpenRouterChatImage = {
+  image_url?: { url?: string }
+  imageUrl?: { url?: string }
+}
+
+type OpenRouterChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: unknown
+      images?: OpenRouterChatImage[]
+    }
+  }>
+}
+
+function gcd(a: number, b: number): number {
+  while (b !== 0) {
+    const next = a % b
+    a = b
+    b = next
+  }
+  return Math.abs(a)
+}
+
+function getOpenRouterAspectRatio(size: string): string | undefined {
+  const match = /^(\d+)x(\d+)$/i.exec(size.trim())
+  if (!match) return undefined
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return undefined
+
+  const divisor = gcd(width, height)
+  const aspectRatio = `${width / divisor}:${height / divisor}`
+  return OPENROUTER_ASPECT_RATIOS.has(aspectRatio) ? aspectRatio : undefined
+}
+
+function getOpenRouterApiBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim()
+  const input = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+
+  try {
+    const url = new URL(input)
+    return `${url.origin}/api/v1`
+  } catch {
+    return trimmed || 'https://openrouter.ai/api/v1'
+  }
+}
+
+function createOpenRouterChatContent(prompt: string, inputImageDataUrls: string[]): unknown {
+  if (!inputImageDataUrls.length) return prompt
+  return [
+    { type: 'text', text: prompt },
+    ...inputImageDataUrls.map((dataUrl) => ({
+      type: 'image_url',
+      image_url: { url: dataUrl },
+    })),
+  ]
+}
+
+function createOpenRouterChatBody(
+  opts: CallApiOptions,
+  profile: ApiProfile,
+  modalities: Array<'image' | 'text'>,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: profile.model,
+    messages: [{
+      role: 'user',
+      content: createOpenRouterChatContent(opts.prompt, opts.inputImageDataUrls),
+    }],
+    modalities,
+    stream: false,
+  }
+
+  const aspectRatio = getOpenRouterAspectRatio(opts.params.size)
+  if (aspectRatio) {
+    body.image_config = { aspect_ratio: aspectRatio }
+  }
+
+  return body
+}
+
+function getOpenRouterImageUrl(image: OpenRouterChatImage): string | undefined {
+  return image.image_url?.url ?? image.imageUrl?.url
+}
+
+async function parseOpenRouterChatImageResponse(
+  payload: OpenRouterChatCompletionResponse,
+  mime: string,
+  signal?: AbortSignal,
+): Promise<CallApiResult> {
+  const imageUrls = (payload.choices ?? [])
+    .flatMap((choice) => choice.message?.images ?? [])
+    .map(getOpenRouterImageUrl)
+    .filter((value): value is string => isHttpUrl(value) || isDataUrl(value))
+
+  if (!imageUrls.length) {
+    const err = new Error('OpenRouter 没有返回图片数据。请确认模型的 output_modalities 包含 image，并且当前请求包含 modalities: ["image", "text"] 或 ["image"]。')
+    ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
+    throw err
+  }
+
+  const rawImageUrls = imageUrls.filter(isHttpUrl)
+  try {
+    const images = await Promise.all(imageUrls.map((url) => fetchImageUrlAsDataUrl(url, mime, signal)))
+    return { images, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
+  } catch (err) {
+    if (rawImageUrls.length > 0 && err instanceof Error) {
+      (err as any).rawImageUrls = rawImageUrls
+    }
+    throw err
+  }
+}
+
 function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime: string): Array<{
   image: string
   actualParams?: Partial<TaskParams>
@@ -437,6 +556,10 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
     return callCustomHttpImageApi(opts, profile, customProvider)
   }
 
+  if (isOpenRouterImageGenerationProfile(profile)) {
+    return callOpenRouterChatImageApi(opts, profile)
+  }
+
   if (profile.apiMode === 'chat') {
     throw new Error('Chat Completions API 只能用于 AI 策划；生图请切换到 Images API 配置。')
   }
@@ -497,6 +620,92 @@ async function callImagesApiConcurrent(opts: CallApiOptions, profile: ApiProfile
   )
 
   return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
+}
+
+async function callOpenRouterChatImageApi(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
+  const n = opts.params.n > 0 ? opts.params.n : 1
+  if (n === 1) return callOpenRouterChatImageApiSingle(opts, profile)
+
+  const singleOpts = {
+    ...opts,
+    params: {
+      ...opts.params,
+      n: 1,
+    },
+  }
+  const results = await Promise.allSettled(
+    Array.from({ length: n }).map((_, requestIndex) => callOpenRouterChatImageApiSingle({
+      ...singleOpts,
+      onPartialImage: opts.onPartialImage
+        ? (partial) => opts.onPartialImage?.({ ...partial, requestIndex })
+        : undefined,
+    }, profile)),
+  )
+
+  const successfulResults = results
+    .filter((r): r is PromiseFulfilledResult<CallApiResult> => r.status === 'fulfilled')
+    .map((r) => r.value)
+
+  if (successfulResults.length === 0) {
+    const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+    if (firstError) throw firstError.reason
+    throw new Error('所有并发请求均失败')
+  }
+
+  const images = successfulResults.flatMap((r) => r.images)
+  const rawImageUrls = successfulResults.flatMap((r) => r.rawImageUrls ?? [])
+  const actualParams = mergeActualParams(
+    successfulResults[0]?.actualParams ?? {},
+    images.length === opts.params.n ? { n: opts.params.n } : { n: images.length },
+  )
+
+  return { images, actualParams, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
+}
+
+async function callOpenRouterChatImageApiSingle(
+  opts: CallApiOptions,
+  profile: ApiProfile,
+  modalities: Array<'image' | 'text'> = ['image', 'text'],
+): Promise<CallApiResult> {
+  if (opts.maskDataUrl) {
+    throw new Error('OpenRouter Chat Completions 生图暂不支持遮罩编辑，请切换到支持 /images/edits 的生图接口。')
+  }
+
+  assertImageInputPayloadSize(
+    opts.inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0),
+  )
+
+  const mime = MIME_MAP[opts.params.output_format] || 'image/png'
+  const proxyConfig = readClientDevProxyConfig()
+  const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
+  const requestHeaders = createRequestHeaders(profile)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+
+  try {
+    const response = await fetch(buildApiUrl(getOpenRouterApiBaseUrl(profile.baseUrl), 'chat/completions', proxyConfig, useApiProxy, { prefixV1: false }), {
+      method: 'POST',
+      headers: {
+        ...requestHeaders,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      body: JSON.stringify(createOpenRouterChatBody(opts, profile, modalities)),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const message = await getApiErrorMessage(response)
+      if (modalities.includes('text') && OPENROUTER_MODALITY_RETRY_RE.test(message)) {
+        return callOpenRouterChatImageApiSingle(opts, profile, ['image'])
+      }
+      throw new Error(message)
+    }
+
+    return parseOpenRouterChatImageResponse(await response.json() as OpenRouterChatCompletionResponse, mime, controller.signal)
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {

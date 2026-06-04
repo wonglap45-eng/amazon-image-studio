@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { addImageFromFile, ensureImageCached, submitTask, useStore } from '../store'
-import { getActiveApiProfile, getAmazonPlannerProfile, normalizeSettings, validateApiProfile } from '../lib/apiProfiles'
+import { canApiProfileGenerateImages, getActiveApiProfile, getAmazonPlannerProfile, normalizeSettings, validateApiProfile } from '../lib/apiProfiles'
 import {
   DEFAULT_AMAZON_PROMPT_DRAFT,
   type AmazonPromptDraft,
@@ -668,11 +668,11 @@ export default function AmazonPlanner() {
       setShowSettings(true, 'api')
       return
     }
-    if (imageProfile.apiMode !== 'images') {
+    if (!canApiProfileGenerateImages(imageProfile)) {
       const apiModeLabel = imageProfile.apiMode === 'responses' ? 'Responses API' : 'Chat Completions'
       setConfirmDialog({
         title: '当前配置不能生图',
-        message: `当前配置「${imageProfile.name}」使用 ${apiModeLabel}，普通生图只支持 Images API。生成风格板前，请切换到 Images API 生图配置。`,
+        message: `当前配置「${imageProfile.name}」使用 ${apiModeLabel}，普通生图只支持 Images API，OpenRouter 图片模型可使用 Chat Completions。生成风格板前，请切换到生图配置。`,
         confirmText: '去切换配置',
         cancelText: '取消',
         action: () => {
