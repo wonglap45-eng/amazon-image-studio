@@ -4,7 +4,6 @@ import { DEFAULT_AMAZON_PROMPT_DRAFT } from './amazonPrompt'
 import {
   buildAmazonAPlusPlanPrompt,
   buildAmazonPlanPrompt,
-  buildAmazonStyleCandidatePrompt,
   formatAPlusModuleText,
   getAPlusContentTypeLabel,
   getAPlusModuleDisplayName,
@@ -108,26 +107,6 @@ describe('Amazon prompt builders', () => {
     expect(prompt).not.toContain('The last input image is a hidden style reference')
   })
 
-  it('builds style candidate prompts as reusable visual reference boards', () => {
-    const prompt = buildAmazonStyleCandidatePrompt({
-      label: '极简信息图',
-      description: '干净的字体和浅色背景',
-      prompt: 'Create a refined information-design style for the product.',
-      negativePrompt: 'Chinese characters, QR code, price badge',
-    }, 'Use warm off-white backgrounds and charcoal typography.')
-
-    expect(prompt).toContain('Create a refined information-design style for the product.')
-    expect(prompt).toContain('1024x1024 visual style reference board')
-    expect(prompt).toContain('typography samples')
-    expect(prompt).toContain('color palette swatches')
-    expect(prompt).toContain('lighting/material samples')
-    expect(prompt).toContain('icon/callout treatment')
-    expect(prompt).toContain('PRODUCT TITLE')
-    expect(prompt).toContain('Series style guide:')
-    expect(prompt).toContain('warm off-white backgrounds')
-    expect(prompt).toContain('Negative prompt:')
-    expect(prompt).toContain('Chinese characters, QR code, price badge')
-  })
 })
 
 describe('A+ module helpers', () => {
@@ -149,15 +128,6 @@ describe('A+ module helpers', () => {
     })).toBe('Organized in Seconds\n\nElastic loops keep pens, pencils, and small tools easy to find.')
   })
 })
-
-function createStyleCandidates() {
-  return [1, 2, 3].map((index) => ({
-    label: `风格 ${index}`,
-    description: `第 ${index} 个视觉方向`,
-    prompt: `Create style reference ${index} for this product.`,
-    negativePrompt: `negative style ${index}`,
-  }))
-}
 
 function createApiPlans() {
   return ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06'].map((slot) => ({
@@ -182,7 +152,6 @@ function createApiPayload(title = 'AI planned tumbler') {
     },
     sellingPoints: ['Cold for 24 hours'],
     seriesStyleGuide: 'Use a cohesive warm commercial style across the set.',
-    styleCandidates: createStyleCandidates(),
     imagePlans: createApiPlans(),
   }
 }
@@ -225,7 +194,6 @@ function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P', title = 'AI planned A
     },
     sellingPoints: ['Cold for 24 hours'],
     seriesStyleGuide: 'Use a cohesive A+ visual style across the module set.',
-    styleCandidates: createStyleCandidates(),
     aPlusPlans: createAPlusPlans(prefix, brand),
   }
 }
@@ -265,11 +233,8 @@ describe('callAmazonPlannerApi', () => {
     expect(body.instructions).toContain('product fills about 85%')
     expect(body.instructions).toContain('no text, logo, watermark')
     expect(body.instructions).toContain('Do not use Amazon, Prime, Alexa, Amazon Choice')
-    expect(body.instructions).toContain('visual style reference board')
-    expect(body.instructions).toContain('typography samples')
-    expect(body.instructions).toContain('color palette swatches')
-    expect(body.instructions).toContain('lighting/material samples')
-    expect(body.instructions).toContain('icon/callout treatment')
+    expect(body.instructions).toContain('built-in preset style reference boards')
+    expect(body.instructions).not.toContain('visual style reference board generation')
     expect(body.instructions).toContain('fully plan the finished Amazon image')
     expect(body.instructions).toContain('complete information design')
     expect(body.instructions).not.toContain('sparse copy')
@@ -278,7 +243,7 @@ describe('callAmazonPlannerApi', () => {
     expect(body.instructions).not.toContain('mandatory phrase')
     expect(body.text.format.type).toBe('json_schema')
     expect(body.text.format.schema.required).toContain('seriesStyleGuide')
-    expect(body.text.format.schema.required).toContain('styleCandidates')
+    expect(body.text.format.schema.required).not.toContain('styleCandidates')
     expect(body.text.format.schema.required).not.toContain('visualSystem')
     expect(body.text.format.schema.properties.product.properties).toHaveProperty('brand')
     expect(body.text.format.schema.properties.imagePlans.items.properties).toHaveProperty('planMarkdown')
@@ -287,7 +252,6 @@ describe('callAmazonPlannerApi', () => {
     expect(body.input[0].content[1]).toEqual({ type: 'input_image', image_url: 'data:image/png;base64,ref' })
     expect(result.parsed.title).toBe('AI planned tumbler')
     expect(result.seriesStyleGuide).toContain('cohesive warm')
-    expect(result.styleCandidates).toHaveLength(3)
     expect(result.plans[0]).toMatchObject({
       slot: 'MAIN',
       planMarkdown: expect.stringContaining('MAIN 主图方案'),
@@ -330,9 +294,9 @@ describe('callAmazonPlannerApi', () => {
     expect(url).toBe('https://api.deepseek.com/chat/completions')
     const body = JSON.parse(String(init?.body))
     expect(body.messages[0].content).toContain('Return a valid JSON object only')
-    expect(body.messages[0].content).toContain('styleCandidates array of exactly 3')
+    expect(body.messages[0].content).not.toContain('styleCandidates')
     expect(body.messages[0].content).toContain('Amazon Listing reference material for the planner')
-    expect(body.messages[0].content).toContain('visual style reference board')
+    expect(body.messages[0].content).toContain('built-in preset style reference boards')
     expect(body.messages[1].content[0]).toMatchObject({ type: 'text' })
     expect(body.messages[1].content[1]).toEqual({
       type: 'image_url',
@@ -382,10 +346,8 @@ describe('callAmazonPlannerApi', () => {
     expect(body.instructions).toContain('Comparison Thumbnail 150x300')
     expect(body.instructions).toContain('QR codes')
     expect(body.instructions).toContain('mobile-readable')
-    expect(body.instructions).toContain('visual style reference board')
-    expect(body.instructions).toContain('typography samples')
-    expect(body.instructions).toContain('color palette swatches')
-    expect(body.instructions).toContain('lighting/material samples')
+    expect(body.instructions).toContain('built-in preset style reference boards')
+    expect(body.instructions).not.toContain('visual style reference board generation')
     expect(body.instructions).toContain('fully plan the finished Amazon image')
     expect(body.instructions).toContain('complete information design')
     expect(body.instructions).toContain('Known brand/model: ExampleBrand')

@@ -15,7 +15,7 @@
 
 - OpenRouter 生图改走 Chat Completions 图片生成，修复普通 Images API 路径下的 404。
 - OpenRouter 请求补齐 `image_config.aspect_ratio` 和 `image_config.image_size`，A+ 非 1:1 图片会映射到最接近的支持比例，减少实际输出回落到 1024 级别。
-- 风格板生成新增“停止”按钮，并把停止信号接入 OpenRouter、OpenAI Images API、自定义接口和 fal 请求链路。
+- 视觉风格改为内置预设风格图，附图和 A+ 生成时会作为隐藏参考图参与最终生图。
 - 参考图请求前会压缩、控尺寸并校验负载，修复大参考图导致的 413。
 - 普通生图限制为 Images API，OpenRouter 图片模型保留兼容入口，避免误用不支持生图的配置。
 - README 增加在线体验说明，Windows 启动脚本会在启动前自动检查并安装依赖。

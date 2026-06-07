@@ -870,6 +870,8 @@ describe('data import', () => {
     const session = amazonPlannerSession({
       id: 'imported-planner-session',
       referenceImageIds: ['image-a'],
+      selectedStylePresetId: 'clean-tech',
+      selectedStyleReferenceImageId: 'preset-style-image',
       styleImages: [{ candidateIndex: 0, imageId: 'style-image-a' }],
       selectedStyleIndex: 0,
     })
@@ -905,12 +907,15 @@ describe('data export and clearing', () => {
     const session = amazonPlannerSession({
       id: 'exported-planner-session',
       referenceImageIds: ['image-a'],
+      selectedStylePresetId: 'clean-tech',
+      selectedStyleReferenceImageId: 'preset-style-image',
       styleImages: [{ candidateIndex: 0, imageId: 'style-image-a' }],
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_000,
     })
     await putAmazonPlannerSession(session)
     await putImage({ id: 'image-a', dataUrl: 'data:image/png;base64,YQ==', createdAt: 1_700_000_000_000, source: 'upload' })
+    await putImage({ id: 'preset-style-image', dataUrl: 'data:image/png;base64,Yw==', createdAt: 1_700_000_000_000, source: 'preset' })
     await putImage({ id: 'style-image-a', dataUrl: 'data:image/png;base64,Yg==', createdAt: 1_700_000_000_000, source: 'generated' })
 
     const clickedDownloads: Array<{ download?: string; href?: string }> = []
@@ -937,7 +942,9 @@ describe('data export and clearing', () => {
     expect(manifest.version).toBe(4)
     expect(manifest.amazonPlannerSessions).toEqual([session])
     expect(manifest.imageFiles).toHaveProperty('image-a')
+    expect(manifest.imageFiles).toHaveProperty('preset-style-image')
     expect(manifest.imageFiles).toHaveProperty('style-image-a')
+    expect(manifest.imageFiles?.['preset-style-image']?.source).toBe('preset')
     expect(clickedDownloads[0]?.download).toContain('amazon-image-studio-backup')
 
     createObjectUrl.mockRestore()

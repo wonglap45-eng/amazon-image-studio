@@ -21,13 +21,6 @@ export interface ListingParseResult {
   inferred: Partial<AmazonPromptDraft>
 }
 
-export interface AmazonStyleCandidate {
-  label: string
-  description: string
-  prompt: string
-  negativePrompt: string
-}
-
 export interface AmazonImagePlan {
   slot: string
   label: string
@@ -196,15 +189,6 @@ const STYLE_DENSITY_GUIDES: Record<AmazonStyleDensityMode, string> = {
   ].join('\n'),
 }
 
-const STYLE_REFERENCE_BOARD_REQUIREMENTS = [
-  'Style reference board requirements:',
-  '- Create a 1024x1024 visual style reference board, not a final Amazon product image.',
-  '- The board must visibly include typography samples: a large headline, a smaller subheading, numeric callout samples, short label/caption samples, and icon/callout treatment.',
-  '- Use generic English placeholder typography only, such as PRODUCT TITLE, KEY BENEFIT, DETAIL CALLOUT, 01, 02, 03. Do not use Chinese characters, real product claims, brand logos, Amazon marks, prices, promotions, QR codes, contact details, or external URLs.',
-  '- The board must visibly include color palette swatches, background/material texture samples, lighting/material samples, and a small product-finish or product-detail style sample derived from the uploaded product references.',
-  '- Keep this as a reusable style guide image for later generations, with clear examples of font feeling, color tone, lighting, material finish, icon/callout language, and visual polish.',
-].join('\n')
-
 export function isAmazonListingMainSlot(slot?: string | null): boolean {
   return slot?.trim().toUpperCase() === 'MAIN'
 }
@@ -246,15 +230,6 @@ export function buildAmazonPlanPrompt(plan: Pick<AmazonImagePlan, 'prompt' | 'ne
   styleDensityMode?: AmazonStyleDensityMode
 }): string {
   return formatPromptBlock(plan)
-}
-
-export function buildAmazonStyleCandidatePrompt(candidate: AmazonStyleCandidate, seriesStyleGuide?: string | null) {
-  return [
-    candidate.prompt.trim(),
-    STYLE_REFERENCE_BOARD_REQUIREMENTS,
-    seriesStyleGuide?.trim() ? `Series style guide:\n${seriesStyleGuide.trim()}` : '',
-    candidate.negativePrompt.trim() ? `Negative prompt:\n${candidate.negativePrompt.trim()}` : '',
-  ].filter(Boolean).join('\n\n')
 }
 
 function formatAPlusUploadSize(spec: Pick<AmazonAPlusModuleSpec, 'uploadWidth' | 'uploadHeight'>): string {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { addImageFromFile, ensureImageCached, submitTask, useStore } from '../store'
-import { canApiProfileGenerateImages, getActiveApiProfile, getAmazonPlannerProfile, normalizeSettings, validateApiProfile } from '../lib/apiProfiles'
+import { getAmazonPlannerProfile, validateApiProfile } from '../lib/apiProfiles'
 import {
   DEFAULT_AMAZON_PROMPT_DRAFT,
   type AmazonPromptDraft,
@@ -8,7 +8,6 @@ import {
 import {
   buildAmazonAPlusPlanPrompt,
   buildAmazonPlanPrompt,
-  buildAmazonStyleCandidatePrompt,
   formatAPlusModuleText,
   getAPlusContentTypeLabel,
   getAPlusModuleDisplayName,
@@ -23,14 +22,19 @@ import {
   type AmazonAPlusPlan,
   type AmazonImagePlan,
   type AmazonPlannerMode,
-  type AmazonStyleCandidate,
   type AmazonStyleDensityMode,
 } from '../lib/listingPlanner'
 import { callAmazonPlannerApi, type PlannerApiResult } from '../lib/listingPlannerApi'
-import { callImageApi } from '../lib/api'
-import { deleteAmazonPlannerSession, getAllAmazonPlannerSessions, putAmazonPlannerSession, storeImage } from '../lib/db'
-import { normalizeParamsForSettings } from '../lib/paramCompatibility'
+import { deleteAmazonPlannerSession, getAllAmazonPlannerSessions, putAmazonPlannerSession } from '../lib/db'
 import { prepareReferenceImagePayload, type PlannerReferenceImagePayload } from '../lib/referenceImagePayload'
+import {
+  DEFAULT_STYLE_PRESET_ID,
+  STYLE_PRESETS,
+  ensureStylePresetImageStored,
+  getStylePresetAssetUrl,
+  getStylePresetById,
+  type StylePreset,
+} from '../lib/stylePresets'
 import { DEFAULT_PARAMS } from '../types'
 import type { AmazonPlannerSession } from '../types'
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, CopyIcon, EyeIcon, HistoryIcon, PhotoIcon, PlusIcon, TrashIcon } from './icons'
@@ -57,12 +61,12 @@ type PlannerGuideState = {
 type GuidePanelTone = 'white' | 'muted'
 type PlannerActionProgress = 'filled' | 'submitted'
 type PlannerActionProgressMap = Record<string, PlannerActionProgress>
-type StyleImageState = {
-  candidateIndex: number
-  status: 'running' | 'done' | 'error' | 'stopped'
-  imageId?: string
-  dataUrl?: string
-  error?: string
+type SelectedStyleReference = {
+  presetId: string | null
+  imageId: string
+  dataUrl: string
+  label: string
+  description: string
 }
 type StylePreviewState = {
   dataUrl: string
@@ -119,12 +123,6 @@ function fromSessionDraft(draft: AmazonPlannerSession['draft']): AmazonPromptDra
     ...draft,
     kind: (draft.kind as AmazonPromptDraft['kind']) || DEFAULT_AMAZON_PROMPT_DRAFT.kind,
   }
-}
-
-function getSessionStyleImages(styleImages: StyleImageState[]): AmazonPlannerSession['styleImages'] {
-  return styleImages
-    .filter((image): image is StyleImageState & { imageId: string } => image.status === 'done' && Boolean(image.imageId))
-    .map((image) => ({ candidateIndex: image.candidateIndex, imageId: image.imageId }))
 }
 
 function sortPlannerSessions(sessions: AmazonPlannerSession[]) {
@@ -190,13 +188,6 @@ function isAbortError(err: unknown): boolean {
     (err instanceof Error && err.name === 'AbortError')
 }
 
-function getStyleImagePlaceholder(status: StyleImageState['status'] | undefined) {
-  if (status === 'running') return '生成中...'
-  if (status === 'error') return '生成失败'
-  if (status === 'stopped') return '已停止'
-  return '待生成'
-}
-
 function getStylePreviewPosition(clientX: number, clientY: number) {
   if (typeof window === 'undefined') {
     return { left: clientX + STYLE_PREVIEW_OFFSET, top: clientY + STYLE_PREVIEW_OFFSET }
@@ -248,9 +239,9 @@ function getAmazonAPlusComplianceChecks(
       detail: referenceImageCount > 0 ? `${referenceImageCount} 张参考图` : '建议上传产品实拍参考图',
     },
     {
-      label: '风格板',
+      label: '预设风格',
       status: hasStyleReference ? 'ready' : 'warning',
-      detail: hasStyleReference ? '已选择隐藏风格参考' : '正式生成前请选择风格',
+      detail: hasStyleReference ? '已选择隐藏风格参考' : '正式生成前请选择预设风格',
     },
   ]
 }
@@ -279,25 +270,23 @@ function getAmazonListingPlannerChecks(
       detail: referenceImageCount > 0 ? `${referenceImageCount} 张产品参考图` : '建议上传产品实拍参考图',
     },
     {
-      label: '风格板',
+      label: '预设风格',
       status: !styleReferenceRequired || hasStyleReference ? 'ready' : 'warning',
       detail: !styleReferenceRequired
         ? 'MAIN 主图不使用隐藏风格参考'
-        : hasStyleReference ? '已选择隐藏风格参考' : '正式生成前请选择风格',
+        : hasStyleReference ? '已选择隐藏风格参考' : '正式生成前请选择预设风格',
     },
   ]
 }
 
 export default function AmazonPlanner() {
   const prompt = useStore((s) => s.prompt)
-  const params = useStore((s) => s.params)
   const inputImages = useStore((s) => s.inputImages)
   const settings = useStore((s) => s.settings)
   const setPrompt = useStore((s) => s.setPrompt)
   const setParams = useStore((s) => s.setParams)
   const setPendingTaskCategory = useStore((s) => s.setPendingTaskCategory)
   const setShowSettings = useStore((s) => s.setShowSettings)
-  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const removeInputImage = useStore((s) => s.removeInputImage)
   const clearInputImages = useStore((s) => s.clearInputImages)
   const setInputImages = useStore((s) => s.setInputImages)
@@ -306,7 +295,7 @@ export default function AmazonPlanner() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const plannerAbortControllerRef = useRef<AbortController | null>(null)
-  const styleAbortControllerRef = useRef<AbortController | null>(null)
+  const stylePresetAbortControllerRef = useRef<AbortController | null>(null)
   const [draft, setDraft] = useState<AmazonPromptDraft>(DEFAULT_AMAZON_PROMPT_DRAFT)
   const [resolution, setResolution] = useState<'2k' | '4k'>('2k')
   const [plannerMode, setPlannerMode] = useState<AmazonPlannerMode>('listing')
@@ -318,12 +307,11 @@ export default function AmazonPlanner() {
     listing: '',
     aplus: '',
   })
-  const [styleCandidates, setStyleCandidates] = useState<AmazonStyleCandidate[]>([])
-  const [styleImages, setStyleImages] = useState<StyleImageState[]>([])
-  const [selectedStyleIndex, setSelectedStyleIndex] = useState<number | null>(null)
+  const [selectedStylePresetId, setSelectedStylePresetId] = useState<string | null>(DEFAULT_STYLE_PRESET_ID)
+  const [selectedStyleReference, setSelectedStyleReference] = useState<SelectedStyleReference | null>(null)
   const [styleDensityMode, setStyleDensityMode] = useState<AmazonStyleDensityMode>('rich')
   const [stylePreview, setStylePreview] = useState<StylePreviewState | null>(null)
-  const [isGeneratingStyleImages, setIsGeneratingStyleImages] = useState(false)
+  const [isLoadingStylePreset, setIsLoadingStylePreset] = useState(false)
   const [styleError, setStyleError] = useState('')
   const [selectedPlanIndex, setSelectedPlanIndex] = useState<number | null>(null)
   const [selectedAPlusPlanIndex, setSelectedAPlusPlanIndex] = useState<number | null>(null)
@@ -341,9 +329,9 @@ export default function AmazonPlanner() {
   const selectedPlan = selectedPlanIndex == null ? null : imagePlans[selectedPlanIndex] ?? null
   const selectedAPlusPlan = selectedAPlusPlanIndex == null ? null : aPlusPlansWithSizes[selectedAPlusPlanIndex] ?? null
   const selectedAPlusText = selectedAPlusPlan ? formatAPlusModuleText(selectedAPlusPlan) : ''
-  const selectedStyleImage = selectedStyleIndex == null ? null : styleImages.find((image) => image.candidateIndex === selectedStyleIndex && image.status === 'done') ?? null
-  const selectedStyleCandidate = selectedStyleIndex == null ? null : styleCandidates[selectedStyleIndex] ?? null
-  const styleLightboxImageIds = useMemo(() => styleImages.flatMap((image) => image.status === 'done' && image.imageId ? [image.imageId] : []), [styleImages])
+  const selectedStylePreset = getStylePresetById(selectedStylePresetId)
+  const selectedStyleImage = selectedStyleReference
+  const selectedStyleLabel = selectedStyleReference?.label ?? selectedStylePreset?.label ?? ''
   const activeSeriesStyleGuide = plannerMode === 'aplus' ? seriesStyleGuides.aplus : seriesStyleGuides.listing
   const isMainListingPlan = plannerMode === 'listing' && isAmazonListingMainSlot(selectedPlan?.slot)
   const styleReferenceRequired = !isMainListingPlan
@@ -404,8 +392,8 @@ export default function AmazonPlanner() {
         : `先填入当前 ${actionSlot ?? '当前'} ${actionKindLabel}提示词`
   const mainStyleGuidance = isMainListingPlan
     ? hasStyleReference
-      ? 'MAIN 主图不附加风格板；附图和 A+ 会使用已选风格。'
-      : 'MAIN 主图不附加风格板；附图和 A+ 可先生成并选择风格板。'
+      ? 'MAIN 主图不附加预设风格图；附图和 A+ 会使用已选风格。'
+      : 'MAIN 主图不附加预设风格图；附图和 A+ 可选择预设风格。'
     : ''
   const actionProgressSteps = [
     {
@@ -426,8 +414,6 @@ export default function AmazonPlanner() {
   ] satisfies Array<{ label: string; detail: string; status: WorkflowStepStatus }>
   const hasListingText = Boolean(listingText.trim())
   const hasUsablePlannerProfile = Boolean(plannerProfile && !plannerProfileValidation)
-  const hasGeneratedStyleImages = styleImages.some((image) => image.status === 'done')
-  const hasRunningStyleImages = styleImages.some((image) => image.status === 'running')
   const seriesStyleReferenceNeeded = plannerMode === 'aplus'
     ? hasPlanOptions
     : imagePlans.some((plan) => !isAmazonListingMainSlot(plan.slot))
@@ -448,12 +434,10 @@ export default function AmazonPlanner() {
           }
         : seriesStyleReferenceNeeded && !hasStyleReference
           ? {
-              target: hasGeneratedStyleImages ? 'style-choice' : 'style',
-              message: hasGeneratedStyleImages
-                ? '下一步：选择一张风格板作为附图和 A+ 的隐藏参考'
-                : hasRunningStyleImages
-                  ? '正在生成风格板，完成后选择一张作为隐藏参考'
-                  : '下一步：生成 3 张低清风格板，统一附图和 A+ 视觉',
+              target: 'style-choice',
+              message: isLoadingStylePreset
+                ? '正在加载预设风格参考图'
+                : '下一步：选择一套预设风格，统一附图和 A+ 视觉',
             }
           : !hasSelectedPlan
             ? {
@@ -495,8 +479,8 @@ export default function AmazonPlanner() {
     return () => {
       plannerAbortControllerRef.current?.abort()
       plannerAbortControllerRef.current = null
-      styleAbortControllerRef.current?.abort()
-      styleAbortControllerRef.current = null
+      stylePresetAbortControllerRef.current?.abort()
+      stylePresetAbortControllerRef.current = null
     }
   }, [])
 
@@ -513,11 +497,12 @@ export default function AmazonPlanner() {
 
   const createPlannerSessionSnapshot = (overrides: Partial<AmazonPlannerSession> = {}): AmazonPlannerSession => {
     const now = Date.now()
-    const existing = !overrides.id && currentPlannerSessionId ? plannerSessions.find((session) => session.id === currentPlannerSessionId) : null
+    const targetSessionId = overrides.id ?? currentPlannerSessionId
+    const existing = targetSessionId ? plannerSessions.find((session) => session.id === targetSessionId) : null
     const snapshotDraft = overrides.draft ? fromSessionDraft(overrides.draft) : draft
     const snapshotListingText = overrides.listingText ?? listingText
     return {
-      id: overrides.id ?? currentPlannerSessionId ?? createPlannerSessionId(),
+      id: targetSessionId ?? createPlannerSessionId(),
       title: overrides.title ?? getPlannerSessionTitle(snapshotDraft, snapshotListingText),
       mode: overrides.mode ?? plannerMode,
       aPlusType: overrides.aPlusType ?? aPlusType,
@@ -526,9 +511,11 @@ export default function AmazonPlanner() {
       referenceImageIds: overrides.referenceImageIds ?? inputImages.map((image) => image.id),
       draft: overrides.draft ?? toSessionDraft(draft),
       seriesStyleGuides: overrides.seriesStyleGuides ?? seriesStyleGuides,
-      styleCandidates: overrides.styleCandidates ?? styleCandidates,
-      styleImages: overrides.styleImages ?? getSessionStyleImages(styleImages),
-      selectedStyleIndex: overrides.selectedStyleIndex ?? selectedStyleIndex,
+      styleCandidates: overrides.styleCandidates ?? [],
+      styleImages: overrides.styleImages ?? [],
+      selectedStyleIndex: overrides.selectedStyleIndex ?? null,
+      selectedStylePresetId: overrides.selectedStylePresetId ?? selectedStylePresetId,
+      selectedStyleReferenceImageId: overrides.selectedStyleReferenceImageId ?? selectedStyleReference?.imageId ?? null,
       styleDensityMode: overrides.styleDensityMode ?? styleDensityMode,
       imagePlans: overrides.imagePlans ?? imagePlans,
       aPlusPlans: overrides.aPlusPlans ?? aPlusPlansWithSizes,
@@ -573,7 +560,7 @@ export default function AmazonPlanner() {
     }
     const shouldRequireStyle = options.requireStyle && styleReferenceRequired
     if (shouldRequireStyle && !selectedStyleImage?.imageId) {
-      showToast('请先生成并选择一张风格参考板', 'error')
+      showToast('请先选择一套预设风格', 'error')
       return false
     }
     if (shouldRequireStyle && styleReferenceLimitExceeded) {
@@ -664,138 +651,74 @@ export default function AmazonPlanner() {
     }
   }
 
-  const generateStyleImages = async () => {
-    if (styleAbortControllerRef.current) {
-      showToast('风格板正在生成中', 'info')
-      return
-    }
-    if (!styleCandidates.length) {
-      showToast('请先完成 AI 策划，再生成风格板', 'error')
-      return
+  const selectStylePreset = async (presetId: string, options: { silent?: boolean; persist?: boolean } = {}) => {
+    const preset = getStylePresetById(presetId)
+    if (!preset) {
+      showToast('预设风格不存在', 'error')
+      return null
     }
 
-    const normalizedSettings = normalizeSettings(settings)
-    const imageProfile = getActiveApiProfile(normalizedSettings)
-    const imageProfileValidation = validateApiProfile(imageProfile)
-    if (imageProfileValidation) {
-      showToast(`请先完善生图 API 配置：${imageProfileValidation}`, 'error')
-      setShowSettings(true, 'api')
-      return
-    }
-    if (!canApiProfileGenerateImages(imageProfile)) {
-      const apiModeLabel = imageProfile.apiMode === 'responses' ? 'Responses API' : 'Chat Completions'
-      setConfirmDialog({
-        title: '当前配置不能生图',
-        message: `当前配置「${imageProfile.name}」使用 ${apiModeLabel}，普通生图只支持 Images API，OpenRouter 图片模型可使用 Chat Completions。生成风格板前，请切换到生图配置。`,
-        confirmText: '去切换配置',
-        cancelText: '取消',
-        action: () => {
-          setShowSettings(true, 'api')
-        },
-      })
-      return
-    }
-
+    stylePresetAbortControllerRef.current?.abort()
     const controller = new AbortController()
-    styleAbortControllerRef.current = controller
-    setIsGeneratingStyleImages(true)
+    stylePresetAbortControllerRef.current = controller
+    setSelectedStylePresetId(preset.id)
+    setIsLoadingStylePreset(true)
     setStyleError('')
-    setSelectedStyleIndex(null)
-    setStylePreview(null)
-    setStyleImages(styleCandidates.map((_, index) => ({ candidateIndex: index, status: 'running' })))
-
-    const styleParams = normalizeParamsForSettings({
-      size: '1024x1024',
-      quality: DEFAULT_PARAMS.quality,
-      output_format: DEFAULT_PARAMS.output_format,
-      output_compression: DEFAULT_PARAMS.output_compression,
-      moderation: params.moderation,
-      n: 1,
-    }, normalizedSettings, { hasInputImages: inputImages.length > 0 })
 
     try {
-      const referencePayload = await prepareReferencePayloadForRequest(inputImages.map((image) => image.dataUrl), controller.signal)
-      if (styleAbortControllerRef.current !== controller) return
-
-      const settled = await Promise.allSettled(styleCandidates.map(async (candidate, candidateIndex) => {
-        const result = await callImageApi({
-          settings: normalizedSettings,
-          prompt: buildAmazonStyleCandidatePrompt(candidate, activeSeriesStyleGuide),
-          params: styleParams,
-          inputImageDataUrls: referencePayload.dataUrls,
-          signal: controller.signal,
+      const result = await ensureStylePresetImageStored(preset.id, controller.signal)
+      if (stylePresetAbortControllerRef.current !== controller) return null
+      const reference: SelectedStyleReference = {
+        presetId: preset.id,
+        imageId: result.imageId,
+        dataUrl: result.dataUrl,
+        label: preset.label,
+        description: preset.description,
+      }
+      setSelectedStyleReference(reference)
+      if (options.persist !== false) {
+        await savePlannerSession({
+          selectedStylePresetId: preset.id,
+          selectedStyleReferenceImageId: result.imageId,
+          styleCandidates: [],
+          styleImages: [],
+          selectedStyleIndex: null,
         })
-        const dataUrl = result.images[0]
-        if (!dataUrl) throw new Error('风格板接口没有返回图片')
-        const imageId = await storeImage(dataUrl, 'generated')
-        return { candidateIndex, imageId, dataUrl }
-      }))
-      if (styleAbortControllerRef.current !== controller) return
-
-      const nextStyleImages: StyleImageState[] = settled.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return {
-            candidateIndex: result.value.candidateIndex,
-            status: 'done',
-            imageId: result.value.imageId,
-            dataUrl: result.value.dataUrl,
-          }
-        }
-        return {
-          candidateIndex: index,
-          status: 'error',
-          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-        }
-      })
-      setStyleImages(nextStyleImages)
-
-      const failed = nextStyleImages.filter((image) => image.status === 'error')
-      updateCurrentPlannerSession({
-        styleImages: getSessionStyleImages(nextStyleImages),
-        selectedStyleIndex: null,
-      })
-      if (failed.length === styleCandidates.length) {
-        const message = failed[0]?.error || '风格板生成失败'
-        setStyleError(message)
-        showToast('风格板生成失败，请查看详情', 'error')
-        return
       }
-      if (failed.length > 0) {
-        setStyleError(`${failed.length} 张风格板生成失败，可先选择已成功的风格板。`)
-        showToast('部分风格板生成失败', 'error')
-        return
-      }
-      showToast('风格板已生成，请选择一个视觉风格', 'success')
+      if (!options.silent) showToast(`已选择「${preset.label}」预设风格`, 'success')
+      return reference
     } catch (err) {
-      if (styleAbortControllerRef.current !== controller || isAbortError(err) || controller.signal.aborted) return
+      if (controller.signal.aborted || isAbortError(err)) return null
       const message = err instanceof Error ? err.message : String(err)
-      setStyleImages([])
+      setSelectedStyleReference(null)
       setStyleError(message)
-      showToast('风格板生成失败，请查看详情', 'error')
+      showToast('预设风格图加载失败', 'error')
+      return null
     } finally {
-      if (styleAbortControllerRef.current === controller) {
-        styleAbortControllerRef.current = null
-        setIsGeneratingStyleImages(false)
+      if (stylePresetAbortControllerRef.current === controller) {
+        stylePresetAbortControllerRef.current = null
+        setIsLoadingStylePreset(false)
       }
     }
   }
 
-  const stopGeneratingStyleImages = () => {
-    const controller = styleAbortControllerRef.current
-    if (!controller) return
-    controller.abort(new DOMException('风格板生成已停止', 'AbortError'))
-    styleAbortControllerRef.current = null
-    setIsGeneratingStyleImages(false)
-    setStylePreview(null)
-    setStyleError('')
-    setStyleImages((current) =>
-      current.map((image) =>
-        image.status === 'running'
-          ? { ...image, status: 'stopped', error: '已停止' }
-          : image,
-      ),
-    )
-    showToast('风格板生成已停止', 'info')
+  const updateStylePreview = (
+    preset: StylePreset,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => {
+    setStylePreview({
+      dataUrl: getStylePresetAssetUrl(preset),
+      label: preset.label,
+      description: preset.description,
+      ...getStylePreviewPosition(event.clientX, event.clientY),
+    })
+  }
+
+  const openStylePresetPreview = async (presetId: string) => {
+    const reference = selectedStyleReference?.presetId === presetId
+      ? selectedStyleReference
+      : await selectStylePreset(presetId, { silent: true })
+    if (reference?.imageId) setLightboxImageId(reference.imageId, [reference.imageId])
   }
 
   const applyPlannerResult = (result: PlannerApiResult, sourceLabel: string) => {
@@ -829,9 +752,8 @@ export default function AmazonPlanner() {
       setSelectedAPlusPlanIndex(null)
     }
     setSeriesStyleGuides(nextSeriesStyleGuides)
-    setStyleCandidates(result.styleCandidates)
-    setStyleImages([])
-    setSelectedStyleIndex(null)
+    setSelectedStylePresetId(DEFAULT_STYLE_PRESET_ID)
+    setSelectedStyleReference(null)
     setStylePreview(null)
     setStyleError('')
     setPlannerError('')
@@ -841,15 +763,33 @@ export default function AmazonPlanner() {
       mode: result.mode,
       draft: toSessionDraft(nextDraft),
       seriesStyleGuides: nextSeriesStyleGuides,
-      styleCandidates: result.styleCandidates,
+      styleCandidates: [],
       styleImages: [],
       selectedStyleIndex: null,
+      selectedStylePresetId: DEFAULT_STYLE_PRESET_ID,
+      selectedStyleReferenceImageId: null,
       styleDensityMode,
       imagePlans: nextImagePlans,
       aPlusPlans: nextAPlusPlans,
       selectedPlanIndex: nextSelectedPlanIndex,
       selectedAPlusPlanIndex: nextSelectedAPlusPlanIndex,
-    }).catch((err) => {
+    })
+      .then((session) => selectStylePreset(DEFAULT_STYLE_PRESET_ID, { silent: true, persist: false })
+        .then((reference) => {
+          if (!reference) return
+          const nextSession = {
+            ...session,
+            selectedStylePresetId: reference.presetId,
+            selectedStyleReferenceImageId: reference.imageId,
+            updatedAt: Date.now(),
+          }
+          void putAmazonPlannerSession(nextSession)
+            .then(() => upsertPlannerSessionList(nextSession))
+            .catch((err) => {
+              showToast(`策划历史保存失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+            })
+        }))
+      .catch((err) => {
       showToast(`策划历史保存失败：${err instanceof Error ? err.message : String(err)}`, 'error')
     })
     showToast(`${sourceLabel}已生成 ${result.mode === 'aplus' ? result.aPlusPlans.length : result.plans.length} 张图片策划`, 'success')
@@ -915,37 +855,9 @@ export default function AmazonPlanner() {
     showToast('AI 策划已停止', 'info')
   }
 
-  const selectStyleCandidate = (index: number) => {
-    const imageState = styleImages.find((image) => image.candidateIndex === index && image.status === 'done' && image.imageId)
-    if (!imageState) return
-    setSelectedStyleIndex(index)
-    updateCurrentPlannerSession({
-      selectedStyleIndex: index,
-      styleImages: getSessionStyleImages(styleImages),
-    })
-  }
-
   const changeStyleDensityMode = (mode: AmazonStyleDensityMode) => {
     setStyleDensityMode(mode)
     updateCurrentPlannerSession({ styleDensityMode: mode })
-  }
-
-  const updateStylePreview = (
-    candidate: AmazonStyleCandidate,
-    imageState: StyleImageState | undefined,
-    event: ReactMouseEvent<HTMLElement>,
-  ) => {
-    if (imageState?.status !== 'done' || !imageState.dataUrl) return
-    setStylePreview({
-      dataUrl: imageState.dataUrl,
-      label: candidate.label,
-      description: candidate.description,
-      ...getStylePreviewPosition(event.clientX, event.clientY),
-    })
-  }
-
-  const openStylePreview = (imageId: string) => {
-    setLightboxImageId(imageId, styleLightboxImageIds.length ? styleLightboxImageIds : [imageId])
   }
 
   const selectPlan = (index: number) => {
@@ -982,9 +894,6 @@ export default function AmazonPlanner() {
   const changePlannerMode = (mode: AmazonPlannerMode) => {
     if (mode === plannerMode) return
     setPlannerMode(mode)
-    setStyleCandidates([])
-    setStyleImages([])
-    setSelectedStyleIndex(null)
     setStylePreview(null)
     setStyleError('')
     setActionProgress({})
@@ -996,9 +905,8 @@ export default function AmazonPlanner() {
       setAPlusPlans([])
       setSelectedAPlusPlanIndex(null)
       setSeriesStyleGuides((current) => ({ ...current, aplus: '' }))
-      setStyleCandidates([])
-      setStyleImages([])
-      setSelectedStyleIndex(null)
+      setSelectedStylePresetId(DEFAULT_STYLE_PRESET_ID)
+      setSelectedStyleReference(null)
       setStylePreview(null)
       setStyleError('')
       setActionProgress({})
@@ -1010,9 +918,8 @@ export default function AmazonPlanner() {
     setImagePlans([])
     setAPlusPlans([])
     setSeriesStyleGuides({ listing: '', aplus: '' })
-    setStyleCandidates([])
-    setStyleImages([])
-    setSelectedStyleIndex(null)
+    setSelectedStylePresetId(DEFAULT_STYLE_PRESET_ID)
+    setSelectedStyleReference(null)
     setStyleDensityMode('rich')
     setStylePreview(null)
     setStyleError('')
@@ -1030,21 +937,59 @@ export default function AmazonPlanner() {
       if (dataUrl) restoredReferences.push({ id: imageId, dataUrl })
     }
 
-    const restoredStyleImages: StyleImageState[] = []
-    for (const image of session.styleImages) {
-      const dataUrl = await ensureImageCached(image.imageId)
+    const nextStylePresetId = getStylePresetById(session.selectedStylePresetId)
+      ? session.selectedStylePresetId!
+      : DEFAULT_STYLE_PRESET_ID
+    let restoredStyleReference: SelectedStyleReference | null = null
+    let restoredStyleError = ''
+
+    if (session.selectedStyleReferenceImageId) {
+      const dataUrl = await ensureImageCached(session.selectedStyleReferenceImageId)
       if (dataUrl) {
-        restoredStyleImages.push({
-          candidateIndex: image.candidateIndex,
-          status: 'done',
-          imageId: image.imageId,
+        const preset = getStylePresetById(nextStylePresetId)
+        restoredStyleReference = {
+          presetId: preset?.id ?? null,
+          imageId: session.selectedStyleReferenceImageId,
           dataUrl,
-        })
+          label: preset?.label ?? '历史风格',
+          description: preset?.description ?? '从策划历史恢复的隐藏风格参考。',
+        }
       }
     }
 
-    const selectedStyleRestored = session.selectedStyleIndex != null &&
-      restoredStyleImages.some((image) => image.candidateIndex === session.selectedStyleIndex)
+    if (!restoredStyleReference && session.selectedStyleIndex != null) {
+      const legacyStyle = session.styleImages.find((image) => image.candidateIndex === session.selectedStyleIndex)
+      if (legacyStyle?.imageId) {
+        const dataUrl = await ensureImageCached(legacyStyle.imageId)
+        if (dataUrl) {
+          const legacyCandidate = session.styleCandidates[session.selectedStyleIndex]
+          restoredStyleReference = {
+            presetId: null,
+            imageId: legacyStyle.imageId,
+            dataUrl,
+            label: legacyCandidate?.label || '历史风格板',
+            description: legacyCandidate?.description || '从旧版策划历史恢复的隐藏风格参考。',
+          }
+        } else {
+          restoredStyleError = '历史中的风格板图片不存在，已切换为默认预设风格。'
+        }
+      }
+    }
+
+    if (!restoredStyleReference && nextStylePresetId) {
+      try {
+        const result = await ensureStylePresetImageStored(nextStylePresetId)
+        restoredStyleReference = {
+          presetId: nextStylePresetId,
+          imageId: result.imageId,
+          dataUrl: result.dataUrl,
+          label: result.preset.label,
+          description: result.preset.description,
+        }
+      } catch (err) {
+        restoredStyleError = err instanceof Error ? err.message : String(err)
+      }
+    }
 
     setPlannerMode(session.mode)
     setAPlusType(session.aPlusType)
@@ -1053,9 +998,8 @@ export default function AmazonPlanner() {
     setInputImages(restoredReferences)
     setDraft(fromSessionDraft(session.draft))
     setSeriesStyleGuides(session.seriesStyleGuides)
-    setStyleCandidates(session.styleCandidates)
-    setStyleImages(restoredStyleImages)
-    setSelectedStyleIndex(selectedStyleRestored ? session.selectedStyleIndex : null)
+    setSelectedStylePresetId(restoredStyleReference ? restoredStyleReference.presetId : nextStylePresetId)
+    setSelectedStyleReference(restoredStyleReference)
     setStyleDensityMode(session.styleDensityMode ?? 'rich')
     setStylePreview(null)
     setImagePlans(session.imagePlans as AmazonImagePlan[])
@@ -1063,12 +1007,21 @@ export default function AmazonPlanner() {
     setSelectedPlanIndex(session.selectedPlanIndex != null && session.imagePlans[session.selectedPlanIndex] ? session.selectedPlanIndex : null)
     setSelectedAPlusPlanIndex(session.selectedAPlusPlanIndex != null && session.aPlusPlans[session.selectedAPlusPlanIndex] ? session.selectedAPlusPlanIndex : null)
     setPlannerError('')
-    setStyleError(session.selectedStyleIndex != null && !selectedStyleRestored
-      ? '历史中的风格板图片不存在，请重新生成并选择风格板。策划文本已恢复。'
-      : '')
+    setStyleError(restoredStyleError)
     setCurrentPlannerSessionId(session.id)
     setShowPlannerHistory(false)
     setActionProgress({})
+    const restoredSession = {
+      ...session,
+      selectedStylePresetId: restoredStyleReference ? restoredStyleReference.presetId : nextStylePresetId,
+      selectedStyleReferenceImageId: restoredStyleReference?.imageId ?? null,
+      updatedAt: Date.now(),
+    }
+    void putAmazonPlannerSession(restoredSession)
+      .then(() => upsertPlannerSessionList(restoredSession))
+      .catch((err) => {
+        showToast(`策划历史保存失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+      })
     showToast('策划历史已恢复', 'success')
   }
 
@@ -1202,7 +1155,7 @@ export default function AmazonPlanner() {
               <div>
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">策划历史</div>
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  保存在当前浏览器中，恢复后会带回 Listing、策划卡片、风格候选和已选风格板。
+                  保存在当前浏览器中，恢复后会带回 Listing、策划卡片和已选预设风格。
                 </div>
               </div>
               <button
@@ -1390,9 +1343,9 @@ export default function AmazonPlanner() {
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">参考图</div>
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   {inputImages.length > 0
-                    ? `${inputImages.length}/${API_MAX_IMAGES} 张产品参考图${usesStyleReferenceForActivePlan ? `；正式生成时另附 1 张隐藏风格板（实际 ${effectiveReferenceCount}/${API_MAX_IMAGES}）` : '，将随生成请求一起发送'}`
+                    ? `${inputImages.length}/${API_MAX_IMAGES} 张产品参考图${usesStyleReferenceForActivePlan ? `；正式生成时另附 1 张隐藏预设风格图（实际 ${effectiveReferenceCount}/${API_MAX_IMAGES}）` : '，将随生成请求一起发送'}`
                     : usesStyleReferenceForActivePlan
-                      ? `未上传产品参考图；正式生成时会附 1 张隐藏风格板`
+                      ? `未上传产品参考图；正式生成时会附 1 张隐藏预设风格图`
                       : '建议上传产品实拍、包装或结构参考图'}
                 </div>
               </div>
@@ -1693,7 +1646,7 @@ export default function AmazonPlanner() {
                 <div>
                   <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">视觉风格选择</div>
                   <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                    先生成 3 张低清风格参考板，附图和 A+ 正式生图时会作为隐藏参考附加到请求末尾。
+                    选择一套内置预设风格图，附图和 A+ 正式生图时会作为隐藏参考附加到请求末尾。
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1709,90 +1662,76 @@ export default function AmazonPlanner() {
                       </button>
                     ))}
                   </div>
-                  <button
-                    type="button"
-                    onClick={generateStyleImages}
-                    disabled={isGeneratingStyleImages || styleCandidates.length === 0}
-                    className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${isGeneratingStyleImages || styleCandidates.length === 0 ? 'cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-white/[0.06] dark:text-gray-600' : 'bg-gray-900 text-white hover:bg-gray-700 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-200'} ${guideState.target === 'style' ? 'ring-2 ring-blue-500/25 ring-offset-2 ring-offset-blue-50 dark:ring-offset-gray-950' : ''}`}
-                  >
-                    <PhotoIcon className="h-4 w-4" />
-                    {isGeneratingStyleImages ? '生成中...' : '生成风格板'}
-                  </button>
-                  {isGeneratingStyleImages && (
-                    <button
-                      type="button"
-                      onClick={stopGeneratingStyleImages}
-                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-red-600 px-3 text-sm font-semibold text-white transition hover:bg-red-500 dark:bg-red-500 dark:hover:bg-red-400"
-                    >
-                      <CloseIcon className="h-4 w-4" />
-                      停止
-                    </button>
-                  )}
                 </div>
               </div>
+              {isLoadingStylePreset && (
+                <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
+                  正在加载预设风格参考图...
+                </div>
+              )}
               {styleError && (
                 <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-800 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-200">
                   {styleError}
                 </div>
               )}
-              {styleCandidates.length > 0 && (
-                <div className={`mt-3 grid gap-2 rounded-xl transition sm:grid-cols-3 ${getGuideFocusClass(guideState.target === 'style-choice')}`}>
-                  {styleCandidates.map((candidate, index) => {
-                    const imageState = styleImages.find((image) => image.candidateIndex === index)
-                    const isSelected = selectedStyleIndex === index && imageState?.status === 'done'
-                    const previewImageId = imageState?.status === 'done' ? imageState.imageId : undefined
-                    const canSelect = Boolean(previewImageId)
-                    const canPreview = Boolean(previewImageId && imageState?.dataUrl)
+              <div className={`mt-3 grid gap-2 rounded-xl transition sm:grid-cols-2 xl:grid-cols-4 ${getGuideFocusClass(guideState.target === 'style-choice')}`}>
+                {STYLE_PRESETS.map((preset) => {
+                    const isSelected = selectedStyleReference?.presetId === preset.id
+                    const isLoading = isLoadingStylePreset && selectedStylePresetId === preset.id
+                    const assetUrl = getStylePresetAssetUrl(preset)
                     return (
                       <div
-                        key={`${candidate.label}-${index}`}
-                        onMouseEnter={(event) => updateStylePreview(candidate, imageState, event)}
-                        onMouseMove={(event) => updateStylePreview(candidate, imageState, event)}
+                        key={preset.id}
+                        onMouseEnter={(event) => updateStylePreview(preset, event)}
+                        onMouseMove={(event) => updateStylePreview(preset, event)}
                         onMouseLeave={() => setStylePreview(null)}
-                        className={`relative min-w-0 overflow-hidden rounded-xl border text-left transition ${isSelected ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-500/15 dark:border-violet-300/70 dark:bg-violet-500/10' : canSelect ? 'border-gray-200 bg-white hover:bg-gray-50 dark:border-white/[0.08] dark:bg-gray-900 dark:hover:bg-white/[0.05]' : 'border-gray-200 bg-white opacity-70 dark:border-white/[0.08] dark:bg-gray-900'}`}
+                        className={`relative min-w-0 overflow-hidden rounded-xl border text-left transition ${isSelected ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-500/15 dark:border-violet-300/70 dark:bg-violet-500/10' : 'border-gray-200 bg-white hover:bg-gray-50 dark:border-white/[0.08] dark:bg-gray-900 dark:hover:bg-white/[0.05]'}`}
                       >
-                        {canPreview && previewImageId && (
-                          <button
-                            type="button"
-                            onClick={() => openStylePreview(previewImageId)}
-                            title="预览风格板大图"
-                            aria-label={`预览 ${candidate.label} 风格板大图`}
-                            className="absolute right-2 top-2 z-10 inline-flex h-8 items-center gap-1 rounded-lg bg-white/95 px-2 text-[11px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/5 transition hover:bg-white dark:bg-gray-950/90 dark:text-gray-100 dark:ring-white/10 dark:hover:bg-gray-900"
-                          >
-                            <EyeIcon className="h-3.5 w-3.5" />
-                            预览
-                          </button>
-                        )}
                         <button
                           type="button"
-                          onClick={() => canSelect && selectStyleCandidate(index)}
-                          disabled={!canSelect}
-                          className="block h-full w-full text-left disabled:cursor-not-allowed"
+                          onClick={() => void openStylePresetPreview(preset.id)}
+                          title="预览预设风格大图"
+                          aria-label={`预览 ${preset.label} 预设风格大图`}
+                          className="absolute right-2 top-2 z-10 inline-flex h-8 items-center gap-1 rounded-lg bg-white/95 px-2 text-[11px] font-semibold text-gray-700 shadow-sm ring-1 ring-black/5 transition hover:bg-white dark:bg-gray-950/90 dark:text-gray-100 dark:ring-white/10 dark:hover:bg-gray-900"
+                        >
+                          <EyeIcon className="h-3.5 w-3.5" />
+                          预览
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void selectStylePreset(preset.id)}
+                          className="block h-full w-full text-left"
                         >
                           <div className="aspect-square bg-gray-100 dark:bg-white/[0.04]">
-                            {imageState?.status === 'done' && imageState.dataUrl ? (
-                              <img src={imageState.dataUrl} alt={candidate.label} className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center px-3 text-center text-xs text-gray-400">
-                                {getStyleImagePlaceholder(imageState?.status)}
-                              </div>
-                            )}
+                            <img src={assetUrl} alt={preset.label} className="h-full w-full object-cover" />
                           </div>
                           <div className="p-2">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="min-w-0 truncate text-xs font-semibold text-gray-900 dark:text-gray-100">{candidate.label}</span>
+                              <span className="min-w-0 truncate text-xs font-semibold text-gray-900 dark:text-gray-100">{preset.label}</span>
                               {isSelected && (
                                 <span className="shrink-0 rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">已选</span>
                               )}
+                              {isLoading && !isSelected && (
+                                <span className="shrink-0 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">加载中</span>
+                              )}
                             </div>
-                            <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">{candidate.description}</div>
+                            <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">{preset.description}</div>
+                            <div className="mt-2 flex gap-1">
+                              {preset.palette.map((color) => (
+                                <span
+                                  key={color}
+                                  className="h-3 flex-1 rounded-sm border border-black/5 dark:border-white/10"
+                                  style={{ backgroundColor: color }}
+                                  aria-hidden="true"
+                                />
+                              ))}
+                            </div>
                           </div>
                         </button>
                       </div>
                     )
                   })}
-                </div>
-              )}
+              </div>
               {stylePreview && (
                 <div
                   className="pointer-events-none fixed z-50 hidden w-[420px] max-w-[calc(100vw-24px)] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl sm:block dark:border-white/[0.08] dark:bg-gray-950"
@@ -1805,16 +1744,16 @@ export default function AmazonPlanner() {
                   </div>
                 </div>
               )}
-              {selectedStyleCandidate && selectedStyleImage?.imageId && (
+              {selectedStyleImage?.imageId && selectedStyleLabel && (
                 <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs leading-relaxed text-violet-800 dark:border-violet-300/20 dark:bg-violet-400/10 dark:text-violet-200">
                   {isMainListingPlan
-                    ? `已选择「${selectedStyleCandidate.label}」，但当前 MAIN 主图不会附加这张风格板；切换到附图或 A+ 时才会作为隐藏参考。`
-                    : `已选择「${selectedStyleCandidate.label}」。正式生成时会隐藏附加这张风格参考板作为最后一张参考图，用于统一字体感觉、色板、光影、材质和标注样式，不复制其中占位文字、固定版式或产品摆放。`}
+                    ? `已选择「${selectedStyleLabel}」，但当前 MAIN 主图不会附加这张预设风格图；切换到附图或 A+ 时才会作为隐藏参考。`
+                    : `已选择「${selectedStyleLabel}」。正式生成时会隐藏附加这张预设风格图作为最后一张参考图，用于统一字体感觉、色板、光影、材质和标注样式，不复制其中占位文字、固定版式或产品摆放。`}
                 </div>
               )}
               {styleReferenceLimitExceeded && (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
-                  当前产品参考图加隐藏风格板共 {effectiveReferenceCount} 张，超过上限 {API_MAX_IMAGES} 张，请删除一张产品参考图后再提交。
+                  当前产品参考图加隐藏预设风格图共 {effectiveReferenceCount} 张，超过上限 {API_MAX_IMAGES} 张，请删除一张产品参考图后再提交。
                 </div>
               )}
             </div>

@@ -2021,7 +2021,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     }
     const dataUrl = await ensureImageCached(styleReferenceImageId)
     if (!dataUrl) {
-      showToast('已选择的风格参考板不存在，请重新生成并选择风格板。', 'error')
+      showToast('已选择的预设风格参考图不存在，请重新选择预设风格。', 'error')
       return false
     }
     orderedInputImages = [...orderedInputImages, { id: styleReferenceImageId, dataUrl }]
@@ -4123,6 +4123,7 @@ function formatExportFileTime(date: Date): string {
 function collectAmazonPlannerSessionImageIds(session: AmazonPlannerSession): string[] {
   return [
     ...(session.referenceImageIds || []),
+    ...(session.selectedStyleReferenceImageId ? [session.selectedStyleReferenceImageId] : []),
     ...(session.styleImages || []).map((image) => image.imageId),
   ].filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
 }

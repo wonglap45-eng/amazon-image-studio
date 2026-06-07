@@ -13,7 +13,6 @@ import {
   type AmazonAPlusPlan,
   type AmazonImagePlan,
   type AmazonPlannerMode,
-  type AmazonStyleCandidate,
   type ListingParseResult,
 } from './listingPlanner'
 import { isEventStreamResponse, looksLikeServerSentEvents, readJsonServerSentEvents, readJsonServerSentEventText } from './serverSentEvents'
@@ -31,7 +30,6 @@ interface PlannerApiPayload {
   }
   sellingPoints?: string[]
   seriesStyleGuide?: string
-  styleCandidates?: AmazonStyleCandidate[]
   imagePlans?: Array<Partial<AmazonImagePlan>>
   aPlusPlans?: Array<Partial<AmazonAPlusPlan>>
 }
@@ -40,7 +38,6 @@ export interface PlannerApiResult {
   mode: AmazonPlannerMode
   parsed: ListingParseResult
   seriesStyleGuide: string
-  styleCandidates: AmazonStyleCandidate[]
   plans: AmazonImagePlan[]
   aPlusPlans: AmazonAPlusPlan[]
   aPlusType?: APlusContentType
@@ -93,21 +90,6 @@ const NEGATIVE_PROMPT_SCHEMA = {
   description: 'English negative prompt for the image model. Never include Chinese characters.',
 } as const
 
-const STYLE_CANDIDATE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    label: { type: 'string', description: 'Concise Simplified Chinese style option name.' },
-    description: { type: 'string', description: 'Simplified Chinese explanation of the visual style option.' },
-    prompt: {
-      ...ENGLISH_IMAGE_PROMPT_SCHEMA,
-      description: 'Professional English prompt for a 1024x1024 visual style reference board. Never include Chinese characters.',
-    },
-    negativePrompt: NEGATIVE_PROMPT_SCHEMA,
-  },
-  required: ['label', 'description', 'prompt', 'negativePrompt'],
-} as const
-
 const LISTING_PLANNER_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -117,12 +99,6 @@ const LISTING_PLANNER_SCHEMA = {
     seriesStyleGuide: {
       type: 'string',
       description: 'LLM-authored English visual style guide to keep the whole image set coherent.',
-    },
-    styleCandidates: {
-      type: 'array',
-      minItems: 3,
-      maxItems: 3,
-      items: STYLE_CANDIDATE_SCHEMA,
     },
     imagePlans: {
       type: 'array',
@@ -142,7 +118,7 @@ const LISTING_PLANNER_SCHEMA = {
       },
     },
   },
-  required: ['product', 'sellingPoints', 'seriesStyleGuide', 'styleCandidates', 'imagePlans'],
+  required: ['product', 'sellingPoints', 'seriesStyleGuide', 'imagePlans'],
 } as const
 
 function createAPlusPlannerSchema(aPlusType: APlusContentType) {
@@ -156,12 +132,6 @@ function createAPlusPlannerSchema(aPlusType: APlusContentType) {
       seriesStyleGuide: {
         type: 'string',
         description: 'LLM-authored English visual style guide to keep the whole A+ module set coherent.',
-      },
-      styleCandidates: {
-        type: 'array',
-        minItems: 3,
-        maxItems: 3,
-        items: STYLE_CANDIDATE_SCHEMA,
       },
       aPlusPlans: {
         type: 'array',
@@ -184,7 +154,7 @@ function createAPlusPlannerSchema(aPlusType: APlusContentType) {
         },
       },
     },
-    required: ['product', 'sellingPoints', 'seriesStyleGuide', 'styleCandidates', 'aPlusPlans'],
+    required: ['product', 'sellingPoints', 'seriesStyleGuide', 'aPlusPlans'],
   } as const
 }
 
@@ -404,19 +374,6 @@ function normalizeParsedListing(payload: PlannerApiPayload): ListingParseResult 
   }
 }
 
-function normalizeStyleCandidates(payload: PlannerApiPayload): AmazonStyleCandidate[] {
-  const candidates = Array.isArray(payload.styleCandidates) ? payload.styleCandidates : []
-  return candidates
-    .map((candidate, index) => ({
-      label: candidate?.label?.trim() || `风格 ${index + 1}`,
-      description: candidate?.description?.trim() || '',
-      prompt: candidate?.prompt?.trim() || '',
-      negativePrompt: candidate?.negativePrompt?.trim() || '',
-    }))
-    .filter((candidate) => candidate.prompt)
-    .slice(0, 3)
-}
-
 function normalizeSeriesStyleGuide(payload: PlannerApiPayload): string {
   return typeof payload.seriesStyleGuide === 'string' ? payload.seriesStyleGuide.trim() : ''
 }
@@ -424,19 +381,16 @@ function normalizeSeriesStyleGuide(payload: PlannerApiPayload): string {
 function normalizeListingPlannerApiPayload(payload: PlannerApiPayload): PlannerApiResult {
   const parsed = normalizeParsedListing(payload)
   const seriesStyleGuide = normalizeSeriesStyleGuide(payload)
-  const styleCandidates = normalizeStyleCandidates(payload)
   const plans = Array.isArray(payload.imagePlans)
     ? payload.imagePlans.map(normalizePlan).filter((plan) => plan.prompt.trim() && plan.planMarkdown.trim()).slice(0, 7)
     : []
 
   if (plans.length !== 7) throw new Error('AI 策划结果不是 7 张图')
-  if (styleCandidates.length !== 3) throw new Error('AI 策划结果不是 3 个风格候选')
 
   return {
     mode: 'listing',
     parsed,
     seriesStyleGuide,
-    styleCandidates,
     plans,
     aPlusPlans: [],
   }
@@ -468,7 +422,6 @@ function normalizeAPlusPlan(
 function normalizeAPlusPlannerApiPayload(payload: PlannerApiPayload, aPlusType: APlusContentType, tier: SizeTier): PlannerApiResult {
   const parsed = normalizeParsedListing(payload)
   const seriesStyleGuide = normalizeSeriesStyleGuide(payload)
-  const styleCandidates = normalizeStyleCandidates(payload)
   const specs = getAPlusModuleSpecs(aPlusType)
   const rawPlans = Array.isArray(payload.aPlusPlans) ? payload.aPlusPlans : []
   if (rawPlans.length !== specs.length) throw new Error(`AI A+ 策划结果不是 ${specs.length} 个模块`)
@@ -482,13 +435,11 @@ function normalizeAPlusPlannerApiPayload(payload: PlannerApiPayload, aPlusType: 
   if (emptyPrompt) throw new Error(`AI A+ 策划结果缺少 ${emptyPrompt.slot} 的提示词`)
   const emptyPlan = aPlusPlans.find((plan) => !plan.planMarkdown.trim())
   if (emptyPlan) throw new Error(`AI A+ 策划结果缺少 ${emptyPlan.slot} 的策划说明`)
-  if (styleCandidates.length !== 3) throw new Error('AI A+ 策划结果不是 3 个风格候选')
 
   return {
     mode: 'aplus',
     parsed,
     seriesStyleGuide,
-    styleCandidates,
     plans: [],
     aPlusPlans,
     aPlusType,
@@ -505,11 +456,9 @@ function buildListingPlannerInstructions(baseDraft: AmazonPromptDraft) {
     'For each slot, write planMarkdown in Simplified Chinese as a detailed agent-style plan similar to a ChatGPT web response, then write a professional English image prompt and English negative prompt.',
     'Each image prompt should fully plan the finished Amazon image: composition, product evidence, on-image US-English copy when useful, callouts or information areas when useful, visual hierarchy, and rendering style.',
     'For secondary information images, prefer complete information design with clear hierarchy and useful product evidence; lifestyle or beauty slots should still have purposeful composition and visible product support.',
-    'Return one seriesStyleGuide string in English that can keep separately generated images visually coherent.',
-    'Return exactly 3 styleCandidates for low-resolution visual style reference board generation. Each candidate should represent a distinct coherent visual style choice for this same product, not a finished Amazon listing image.',
-    'For each styleCandidates.prompt, describe a 1024x1024 visual style reference board with visible typography samples, color palette swatches, lighting/material samples, background/material texture samples, product-finish detail samples, and icon/callout treatment.',
-    'The style board typography samples must use generic English placeholder words only, such as PRODUCT TITLE, KEY BENEFIT, DETAIL CALLOUT, 01, 02, 03. Do not include Chinese characters, real product claims, brand logos, Amazon marks, prices, promotions, QR codes, contact details, or external URLs in styleCandidates.prompt.',
-    'Field language rules: label and planMarkdown must be Simplified Chinese; seriesStyleGuide, prompt, negativePrompt, and styleCandidates.prompt/negativePrompt must be English.',
+    'Return one seriesStyleGuide string in English that can keep separately generated images visually coherent together with the user-selected preset style reference image.',
+    'Do not create, request, or describe separate style reference board images. The application uses built-in preset style reference boards.',
+    'Field language rules: label and planMarkdown must be Simplified Chinese; seriesStyleGuide, prompt, and negativePrompt must be English.',
     'Do not generate images. Only return JSON matching the schema.',
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
   ].filter(Boolean).join('\n')
@@ -543,12 +492,10 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
       ? `Known brand/model: ${baseDraft.brand}. For header-banner and hero-banner modules, naturally include this real brand/model as a small brand line, headline prefix, or subline when it improves the composition. For brand-story modules, use this brand/model to frame the brand tone or promise only when supported by the provided listing or brand notes.`
       : 'If no real brand/model is provided, do not invent a brand name, logo, trademark, brand history, brand promise, authorization claim, website, contact detail, or external link.',
     'Use brand names as text only unless the user provides a real logo reference image. Do not invent logo artwork, standalone trademark/copyright symbols, brand history, authorization claims, websites, contact details, or external links.',
-    'Return one seriesStyleGuide string in English that can keep separately generated modules visually coherent.',
-    'Return exactly 3 styleCandidates for low-resolution visual style reference board generation. Each candidate should represent a distinct coherent visual style choice for this same product and A+ set, not a finished Amazon A+ module.',
-    'For each styleCandidates.prompt, describe a 1024x1024 visual style reference board with visible typography samples, color palette swatches, lighting/material samples, background/material texture samples, product-finish detail samples, and icon/callout treatment.',
-    'The style board typography samples must use generic English placeholder words only, such as PRODUCT TITLE, KEY BENEFIT, DETAIL CALLOUT, 01, 02, 03. Do not include Chinese characters, real product claims, brand logos, Amazon marks, prices, promotions, QR codes, contact details, or external URLs in styleCandidates.prompt.',
+    'Return one seriesStyleGuide string in English that can keep separately generated modules visually coherent together with the user-selected preset style reference image.',
+    'Do not create, request, or describe separate style reference board images. The application uses built-in preset style reference boards.',
     'For modules that need external A+ text outside the image, write textTitle and textBody in natural US English. Otherwise return empty strings.',
-    'Field language rules: label and planMarkdown must be Simplified Chinese; textTitle/textBody must be English or empty; seriesStyleGuide, prompt, negativePrompt, and styleCandidates.prompt/negativePrompt must be English.',
+    'Field language rules: label and planMarkdown must be Simplified Chinese; textTitle/textBody must be English or empty; seriesStyleGuide, prompt, and negativePrompt must be English.',
     baseDraft.category ? `Known category: ${baseDraft.category}` : '',
   ].filter(Boolean).join('\n')
 }
@@ -612,7 +559,7 @@ function buildResponsesPlannerInput(text: string, referenceImageDataUrls: string
 
 function buildChatPlannerSchemaGuide(mode: AmazonPlannerMode, aPlusType: APlusContentType) {
   const productFields = 'product { title, category, color, material, audience, packageIncludes }'
-  const styleFields = 'seriesStyleGuide string, styleCandidates array of exactly 3 { label, description, prompt, negativePrompt }'
+  const styleFields = 'seriesStyleGuide string'
   if (mode === 'aplus') {
     const specs = getAPlusModuleSpecs(aPlusType)
     return [
