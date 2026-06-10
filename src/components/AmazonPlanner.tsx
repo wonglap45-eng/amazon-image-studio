@@ -1479,7 +1479,7 @@ export default function AmazonPlanner() {
                         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
                           <span>{session.mode === 'aplus' ? 'A+ 图' : 'Listing 图'}</span>
                           <span>·</span>
-                          <span>{session.mode === 'aplus' ? session.aPlusType : `${session.imagePlans.length} 张`}</span>
+                          <span>{session.mode === 'aplus' ? getAPlusContentTypeLabel(session.aPlusType) : `${session.imagePlans.length} 张`}</span>
                           <span>·</span>
                           <span>{formatPlannerSessionTime(session.updatedAt)}</span>
                         </div>
@@ -1533,7 +1533,7 @@ export default function AmazonPlanner() {
                 </div>
                 <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   {plannerMode === 'aplus'
-                    ? '粘贴标题、五点描述或品牌说明，生成 Standard / 大图版 / Premium A+ 模块编排和英文提示词。'
+                    ? '粘贴标题、五点描述或品牌说明，生成普通A+ / 标准A+ / 高级A+ / 手机A+模块编排和英文提示词。'
                     : '粘贴标题、五点描述或产品说明，生成 Main + PT01-PT06 的逐张方案和英文提示词。'}
                 </div>
               </div>
@@ -1549,9 +1549,10 @@ export default function AmazonPlanner() {
             {plannerMode === 'aplus' && (
               <div className="mt-3 inline-flex rounded-xl border border-gray-200 bg-gray-100 p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
                 {([
-                  ['standard-large', '大图版'],
-                  ['standard', 'Standard'],
-                  ['premium', 'Premium'],
+                  ['standard-large', '普通A+'],
+                  ['standard', '标准A+'],
+                  ['premium', '高级A+'],
+                  ['mobile', '手机A+'],
                 ] as const).map(([type, label]) => (
                   <button
                     key={type}

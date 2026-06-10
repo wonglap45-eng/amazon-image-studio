@@ -215,7 +215,7 @@ export interface TaskRecord {
     productTitle?: string
     workflow?: TaskWorkflow
     amazonSlot?: string
-    aPlusType?: 'standard' | 'standard-large' | 'premium'
+    aPlusType?: 'standard' | 'standard-large' | 'premium' | 'mobile'
     styleReferenceImageId?: string
   }
 }
@@ -303,7 +303,7 @@ export interface AmazonPlannerSession {
   id: string
   title: string
   mode: 'listing' | 'aplus'
-  aPlusType: 'standard' | 'standard-large' | 'premium'
+  aPlusType: 'standard' | 'standard-large' | 'premium' | 'mobile'
   resolution: '2k' | '4k'
   listingText: string
   referenceImageIds: string[]

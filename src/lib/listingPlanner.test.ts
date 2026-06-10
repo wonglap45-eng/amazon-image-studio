@@ -162,7 +162,20 @@ describe('A+ module helpers', () => {
     expect(getAPlusModuleEnglishName(highlightSpec)).toBe('Highlight Tile 1')
     expect(getAPlusModuleDisplayName(premiumSpec)).toBe('高级首屏横幅')
     expect(getAPlusModuleEnglishName(premiumSpec)).toBe('Hero Banner')
-    expect(getAPlusContentTypeLabel('standard-large')).toBe('大图版')
+    expect(getAPlusContentTypeLabel('standard-large')).toBe('普通A+')
+    expect(getAPlusContentTypeLabel('standard')).toBe('标准A+')
+    expect(getAPlusContentTypeLabel('premium')).toBe('高级A+')
+    expect(getAPlusContentTypeLabel('mobile')).toBe('手机A+')
+  })
+
+  it('defines Mobile A+ as five 600x450 modules', () => {
+    const mobileSpecs = getAPlusModuleSpecs('mobile')
+
+    expect(mobileSpecs).toHaveLength(5)
+    expect(mobileSpecs.map((spec) => spec.slot)).toEqual(['A+M01', 'A+M02', 'A+M03', 'A+M04', 'A+M05'])
+    expect(mobileSpecs.every((spec) => spec.uploadWidth === 600 && spec.uploadHeight === 450)).toBe(true)
+    expect(getAPlusModuleDisplayName(mobileSpecs[0]!)).toBe('手机首屏')
+    expect(getAPlusModuleEnglishName(mobileSpecs[1]!)).toBe('Mobile Feature 1')
   })
 
   it('formats external A+ module copy from the LLM', () => {
@@ -200,12 +213,14 @@ function createApiPayload(title = 'AI planned tumbler') {
   }
 }
 
-function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P', brand = '') {
+function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P' | 'A+M', brand = '') {
   const slots = prefix === 'A+S'
     ? ['A+S01', 'A+S02', 'A+S03', 'A+S04', 'A+S05', 'A+S06', 'A+S07', 'A+S08']
     : prefix === 'A+L'
       ? ['A+L01', 'A+L02', 'A+L03', 'A+L04', 'A+L05']
-      : ['A+P01', 'A+P02', 'A+P03', 'A+P04', 'A+P05', 'A+P06']
+      : prefix === 'A+P'
+        ? ['A+P01', 'A+P02', 'A+P03', 'A+P04', 'A+P05', 'A+P06']
+        : ['A+M01', 'A+M02', 'A+M03', 'A+M04', 'A+M05']
 
   return slots.map((slot, index) => ({
     slot,
@@ -214,7 +229,9 @@ function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P', brand = '') {
       ? index === 0 ? 'header-banner' : index < 4 ? 'single-image' : 'highlight-tile'
       : prefix === 'A+L'
         ? index === 0 ? 'header-banner' : 'single-image'
-        : index === 0 ? 'hero-banner' : index < 4 ? 'feature-image' : 'brand-story',
+        : prefix === 'A+P'
+          ? index === 0 ? 'hero-banner' : index < 4 ? 'feature-image' : 'brand-story'
+          : index === 0 ? 'hero-banner' : 'feature-image',
     planMarkdown: `## ${slot} 模块方案\n\n中文 A+ 策划说明。`,
     textTitle: prefix === 'A+S' && index >= 4 ? `Benefit ${slot}` : '',
     textBody: prefix === 'A+S' && index >= 4 ? `External A+ copy for ${slot}.` : '',
@@ -225,7 +242,7 @@ function createAPlusPlans(prefix: 'A+S' | 'A+L' | 'A+P', brand = '') {
   }))
 }
 
-function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P', title = 'AI planned A+ tumbler', brand = '') {
+function createAPlusPayload(prefix: 'A+S' | 'A+L' | 'A+P' | 'A+M', title = 'AI planned A+ tumbler', brand = '') {
   return {
     product: {
       title,
@@ -520,6 +537,59 @@ describe('callAmazonPlannerApi', () => {
       textTitle: 'Benefit A+S05',
       textBody: 'External A+ copy for A+S05.',
     })
+  })
+
+  it('parses Mobile A+ output as five fixed 600x450 modules', async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify(createAPlusPayload('A+M', 'Mobile A+ tumbler', 'ExampleBrand')),
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await callAmazonPlannerApi({
+      listingText: SAMPLE_LISTING,
+      baseDraft: { ...DEFAULT_AMAZON_PROMPT_DRAFT, brand: 'ExampleBrand' },
+      profile: createDefaultOpenAIProfile({
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'user-api-key',
+        apiMode: 'responses',
+        model: 'gpt-planner-profile',
+      }),
+      mode: 'aplus',
+      aPlusType: 'mobile',
+      aPlusGenerationTier: '2K',
+    })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.text.format.schema.properties.aPlusPlans.minItems).toBe(5)
+    expect(body.text.format.schema.properties.aPlusPlans.maxItems).toBe(5)
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties.slot.enum).toEqual(['A+M01', 'A+M02', 'A+M03', 'A+M04', 'A+M05'])
+    expect(body.text.format.schema.properties.aPlusPlans.items.properties.moduleType.enum).toEqual(['hero-banner', 'feature-image'])
+    expect(body.instructions).toContain('Mobile A+ Content 600x450 module set')
+    expect(body.instructions).toContain('A+M01 Mobile Hero 600x450px')
+    expect(body.instructions).toContain('A+M05 Mobile Feature 4 600x450px')
+    expect(body.instructions).toContain('five compact 600x450 modules')
+    expect(body.instructions).toContain('compact mobile screens')
+    expect(body.input[0].content[0].text).toContain('手机A+ module plan')
+    expect(body.input[0].content[0].text).toContain('Use these A+ modules exactly: A+M01, A+M02, A+M03, A+M04, A+M05.')
+    expect(result.mode).toBe('aplus')
+    expect(result.aPlusType).toBe('mobile')
+    expect(result.aPlusPlans).toHaveLength(5)
+    expect(result.aPlusPlans[0]).toMatchObject({
+      slot: 'A+M01',
+      moduleType: 'hero-banner',
+      uploadSize: '600x450',
+      planMarkdown: expect.stringContaining('A+M01 模块方案'),
+      prompt: expect.stringContaining('ExampleBrand'),
+    })
+    expect(result.aPlusPlans[4]).toMatchObject({
+      slot: 'A+M05',
+      moduleType: 'feature-image',
+      uploadSize: '600x450',
+    })
+    expect(result.aPlusPlans[0]?.generationSize).not.toBe('600x450')
   })
 
   it('does not include empty A+ brand output in parsed inferred fields', async () => {

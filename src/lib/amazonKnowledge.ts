@@ -14,6 +14,7 @@ const APLUS_REFERENCE_NOTES = [
   'A+ technical baseline: plan RGB JPG/PNG/BMP assets, at least 72 dpi, sharp and non-blurry, under 2 MB per upload, no animation, no watermark, and no tiny text that cannot be read on mobile.',
   'Standard A+ upload size references: Header Banner 970x300, Single Image 970x600, Logo Image 600x180, Highlight Tile 220x220, Comparison Thumbnail 150x300.',
   'Premium A+ upload size references: Hero Banner 1464x600, Single/Feature Image 970x600, Logo Image 600x180, Brand Story module image around 463x625.',
+  'Mobile A+ upload size reference in this app: five compact 600x450 modules, with one mobile hero and four mobile feature images. Use short mobile-readable copy and avoid dense multi-column layouts.',
   'Design reference: keep key content in a central safe area, use mobile-readable copy, clear hierarchy, balanced spacing, and coherent lighting, color palette, composition logic, material treatment, and typography direction across modules.',
   'A+ should be unique to the product and brand story; avoid simply reusing the same images already planned for the listing carousel.',
   'A+ may use one helpful brand mark and may use a Logo Image module for an existing brand mark; do not invent partner logos or extra marks.',

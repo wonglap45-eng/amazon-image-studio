@@ -478,8 +478,10 @@ function getAPlusPlannerTypeName(aPlusType: APlusContentType) {
   switch (aPlusType) {
     case 'premium':
       return 'Premium A+ Content'
+    case 'mobile':
+      return 'Mobile A+ Content 600x450 module set'
     case 'standard-large':
-      return 'Standard A+ Content large-image template'
+      return 'Regular A+ Content large-image template'
     default:
       return 'Standard A+ Content'
   }
@@ -488,6 +490,9 @@ function getAPlusPlannerTypeName(aPlusType: APlusContentType) {
 function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: APlusContentType) {
   const specs = getAPlusModuleSpecs(aPlusType)
   const typeLabel = getAPlusPlannerTypeName(aPlusType)
+  const mobileGuidance = aPlusType === 'mobile'
+    ? 'For Mobile A+ modules, design every 600x450 image for compact mobile screens: one clear message per module, large product evidence, short mobile-readable US-English copy, and no dense multi-column layouts.'
+    : ''
   return [
     'You are an Amazon A+ Content image-planning agent. The user provides listing copy, optional brand notes, and optional product reference images.',
     `Create a ${typeLabel} image module plan. Do not generate images. Only return JSON matching the schema.`,
@@ -499,6 +504,7 @@ function buildAPlusPlannerInstructions(baseDraft: AmazonPromptDraft, aPlusType: 
     'For each module, write planMarkdown in Simplified Chinese as a detailed agent-style plan similar to a ChatGPT web response, then write a professional English image prompt and English negative prompt.',
     'Each module prompt should fully plan the finished Amazon image: composition, product evidence, on-image US-English copy when useful, callouts or information areas when useful, visual hierarchy, and rendering style.',
     'For A+ information modules, prefer complete information design with clear hierarchy and useful product evidence; lifestyle or brand modules should still have purposeful composition and visible product support.',
+    mobileGuidance,
     baseDraft.brand
       ? `Known brand/model: ${baseDraft.brand}. For header-banner and hero-banner modules, naturally include this real brand/model as a small brand line, headline prefix, or subline when it improves the composition. For brand-story modules, use this brand/model to frame the brand tone or promise only when supported by the provided listing or brand notes.`
       : 'If no real brand/model is provided, do not invent a brand name, logo, trademark, brand history, brand promise, authorization claim, website, contact detail, or external link.',
@@ -561,7 +567,7 @@ function buildPlannerInputText(
   if (mode === 'aplus') {
     const specs = getAPlusModuleSpecs(aPlusType)
     return [
-      `Parse this Amazon listing copy and produce the ${getAPlusContentTypeLabel(aPlusType)} A+ Content module plan.`,
+      `Parse this Amazon listing copy and produce the ${getAPlusContentTypeLabel(aPlusType)} module plan.`,
       'Use the title and bullet points from the pasted text. If a field is uncertain, infer conservatively from the listing.',
       `Use these A+ modules exactly: ${specs.map((spec) => spec.slot).join(', ')}.`,
       referenceImageInstruction,

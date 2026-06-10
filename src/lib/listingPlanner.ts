@@ -4,7 +4,7 @@ import { calculateImageSize, type SizeTier } from './size'
 
 export type AmazonPlannerMode = 'listing' | 'aplus'
 export type { AmazonStyleDensityMode } from '../types'
-export type APlusContentType = 'standard' | 'standard-large' | 'premium'
+export type APlusContentType = 'standard' | 'standard-large' | 'premium' | 'mobile'
 export type APlusModuleKind =
   | 'header-banner'
   | 'single-image'
@@ -143,6 +143,29 @@ export const PREMIUM_A_PLUS_MODULE_SPECS: AmazonAPlusModuleSpec[] = [
   })),
 ]
 
+export const MOBILE_A_PLUS_MODULE_SPECS: AmazonAPlusModuleSpec[] = [
+  {
+    contentType: 'mobile',
+    slot: 'A+M01',
+    label: 'Mobile Hero',
+    displayLabel: '手机首屏',
+    moduleType: 'hero-banner',
+    uploadWidth: 600,
+    uploadHeight: 450,
+    objective: '用移动端首屏图建立产品核心卖点和清晰视觉吸引力。',
+  },
+  ...Array.from({ length: 4 }, (_, index) => ({
+    contentType: 'mobile' as const,
+    slot: `A+M0${index + 2}`,
+    label: `Mobile Feature ${index + 1}`,
+    displayLabel: `手机卖点图 ${index + 1}`,
+    moduleType: 'feature-image' as const,
+    uploadWidth: 600,
+    uploadHeight: 450,
+    objective: '用移动端友好的 4:3 图片讲清一个关键卖点、细节证据或使用场景。',
+  })),
+]
+
 export const OPTIONAL_A_PLUS_MODULE_SPECS: AmazonAPlusModuleSpec[] = [
   {
     contentType: 'optional',
@@ -277,6 +300,8 @@ export function getAPlusModuleSpecs(type: APlusContentType): AmazonAPlusModuleSp
   switch (type) {
     case 'premium':
       return PREMIUM_A_PLUS_MODULE_SPECS
+    case 'mobile':
+      return MOBILE_A_PLUS_MODULE_SPECS
     case 'standard-large':
       return STANDARD_LARGE_A_PLUS_MODULE_SPECS
     default:
@@ -285,18 +310,20 @@ export function getAPlusModuleSpecs(type: APlusContentType): AmazonAPlusModuleSp
 }
 
 export function findAPlusModuleSpec(slot: string): AmazonAPlusModuleSpec | undefined {
-  return [...STANDARD_A_PLUS_MODULE_SPECS, ...STANDARD_LARGE_A_PLUS_MODULE_SPECS, ...PREMIUM_A_PLUS_MODULE_SPECS, ...OPTIONAL_A_PLUS_MODULE_SPECS]
+  return [...STANDARD_A_PLUS_MODULE_SPECS, ...STANDARD_LARGE_A_PLUS_MODULE_SPECS, ...PREMIUM_A_PLUS_MODULE_SPECS, ...MOBILE_A_PLUS_MODULE_SPECS, ...OPTIONAL_A_PLUS_MODULE_SPECS]
     .find((spec) => spec.slot === slot)
 }
 
 export function getAPlusContentTypeLabel(type: APlusContentType): string {
   switch (type) {
     case 'premium':
-      return 'Premium'
+      return '高级A+'
+    case 'mobile':
+      return '手机A+'
     case 'standard-large':
-      return '大图版'
+      return '普通A+'
     default:
-      return 'Standard'
+      return '标准A+'
   }
 }
 
