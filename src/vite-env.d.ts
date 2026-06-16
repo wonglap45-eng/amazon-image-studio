@@ -14,6 +14,7 @@ interface ImportMetaEnv {
   readonly VITE_DEFAULT_PLANNER_API_URL?: string
   readonly VITE_DEFAULT_PLANNER_API_KEY?: string
   readonly VITE_DEFAULT_PLANNER_MODEL?: string
+  readonly VITE_DEFAULT_IMAGE_MODEL?: string
 }
 
 interface ImportMeta {

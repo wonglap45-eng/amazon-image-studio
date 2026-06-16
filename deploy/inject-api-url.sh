@@ -7,6 +7,7 @@ DEFAULT_IMAGE_API_KEY=${DEFAULT_IMAGE_API_KEY:-}
 DEFAULT_PLANNER_API_URL=${DEFAULT_PLANNER_API_URL:-https://api.deepseek.com}
 DEFAULT_PLANNER_API_KEY=${DEFAULT_PLANNER_API_KEY:-}
 DEFAULT_PLANNER_MODEL=${DEFAULT_PLANNER_MODEL:-deepseek-v4-flash}
+DEFAULT_IMAGE_MODEL=${DEFAULT_IMAGE_MODEL:-gpt-image-2}
 
 DOCKER_LEGACY_API_URL_USED=${DOCKER_LEGACY_API_URL_USED:-false}
 if [ -n "$API_URL" ]; then
@@ -34,6 +35,7 @@ find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DE
 find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_PLANNER_API_URL_PLACEHOLDER__|$DEFAULT_PLANNER_API_URL|g" {} +
 find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_PLANNER_API_KEY_PLACEHOLDER__|$DEFAULT_PLANNER_API_KEY|g" {} +
 find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_PLANNER_MODEL_PLACEHOLDER__|$DEFAULT_PLANNER_MODEL|g" {} +
+find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_IMAGE_MODEL_PLACEHOLDER__|$DEFAULT_IMAGE_MODEL|g" {} +
 
 # 检查是否启用了 API 代理
 if [ "$ENABLE_API_PROXY" != "true" ]; then
