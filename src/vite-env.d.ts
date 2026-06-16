@@ -9,6 +9,11 @@ interface ImportMetaEnv {
   readonly VITE_API_PROXY_LOCKED?: string
   readonly VITE_DOCKER_DEPLOYMENT?: string
   readonly VITE_DOCKER_LEGACY_API_URL_USED?: string
+  readonly VITE_DEFAULT_IMAGE_API_URL?: string
+  readonly VITE_DEFAULT_IMAGE_API_KEY?: string
+  readonly VITE_DEFAULT_PLANNER_API_URL?: string
+  readonly VITE_DEFAULT_PLANNER_API_KEY?: string
+  readonly VITE_DEFAULT_PLANNER_MODEL?: string
 }
 
 interface ImportMeta {

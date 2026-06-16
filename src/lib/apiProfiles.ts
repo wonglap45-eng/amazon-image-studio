@@ -20,6 +20,11 @@ import { readRuntimeEnv } from './runtimeEnv'
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
+const DEFAULT_IMAGE_API_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_IMAGE_API_URL) || DEFAULT_BASE_URL
+const DEFAULT_IMAGE_API_KEY = readRuntimeEnv(import.meta.env.VITE_DEFAULT_IMAGE_API_KEY) || ''
+const DEFAULT_PLANNER_API_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_PLANNER_API_URL) || 'https://api.deepseek.com'
+const DEFAULT_PLANNER_API_KEY = readRuntimeEnv(import.meta.env.VITE_DEFAULT_PLANNER_API_KEY) || ''
+const DEFAULT_PLANNER_MODEL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_PLANNER_MODEL) || 'deepseek-v4-flash'
 export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
 export const DEFAULT_RESPONSES_MODEL = 'gpt-5.5'
 export const DEFAULT_CHAT_MODEL = 'gpt-5.5'
@@ -284,8 +289,8 @@ export function createDefaultOpenAIProfile(overrides: Partial<ApiProfile> = {}):
     id: DEFAULT_OPENAI_PROFILE_ID,
     name: '默认',
     provider: 'openai',
-    baseUrl: DEFAULT_BASE_URL,
-    apiKey: '',
+    baseUrl: DEFAULT_IMAGE_API_URL,
+    apiKey: DEFAULT_IMAGE_API_KEY,
     model: DEFAULT_IMAGES_MODEL,
     timeout: DEFAULT_API_TIMEOUT,
     apiMode: 'images',
@@ -311,8 +316,10 @@ export function createDefaultAmazonPlannerProfile(overrides: Partial<ApiProfile>
   return createDefaultOpenAIProfile({
     id: DEFAULT_AMAZON_PLANNER_PROFILE_ID,
     name: 'AI策划',
-    model: DEFAULT_RESPONSES_MODEL,
-    apiMode: 'responses',
+    baseUrl: DEFAULT_PLANNER_API_URL,
+    apiKey: DEFAULT_PLANNER_API_KEY,
+    model: DEFAULT_PLANNER_MODEL,
+    apiMode: 'chat',
     ...overrides,
   })
 }
@@ -870,7 +877,7 @@ function isDefaultOpenAIProfile(profile: ApiProfile): boolean {
   return profile.id === DEFAULT_OPENAI_PROFILE_ID &&
     profile.name === '生图' &&
     profile.provider === 'openai' &&
-    profile.baseUrl === DEFAULT_BASE_URL &&
+    (profile.baseUrl === DEFAULT_IMAGE_API_URL || profile.baseUrl === DEFAULT_BASE_URL) &&
     profile.apiKey === '' &&
     profile.model === DEFAULT_IMAGES_MODEL &&
     profile.timeout === DEFAULT_API_TIMEOUT &&
@@ -885,11 +892,11 @@ function isDefaultAmazonPlannerProfile(profile: ApiProfile): boolean {
   return profile.id === DEFAULT_AMAZON_PLANNER_PROFILE_ID &&
     profile.name === 'AI策划' &&
     profile.provider === 'openai' &&
-    profile.baseUrl === DEFAULT_BASE_URL &&
+    profile.baseUrl === DEFAULT_PLANNER_API_URL &&
     profile.apiKey === '' &&
-    profile.model === DEFAULT_RESPONSES_MODEL &&
+    profile.model === DEFAULT_PLANNER_MODEL &&
     profile.timeout === DEFAULT_API_TIMEOUT &&
-    profile.apiMode === 'responses' &&
+    profile.apiMode === 'chat' &&
     profile.codexCli === false &&
     profile.apiProxy === DEFAULT_OPENAI_API_PROXY &&
     profile.streamImages === false &&

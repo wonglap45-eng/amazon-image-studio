@@ -2,6 +2,12 @@
 
 # 用环境变量替换前端默认 API URL
 DEFAULT_API_URL=${DEFAULT_API_URL:-${API_URL:-https://api.openai.com/v1}}
+DEFAULT_IMAGE_API_URL=${DEFAULT_IMAGE_API_URL:-${DEFAULT_API_URL:-https://api.openai.com/v1}}
+DEFAULT_IMAGE_API_KEY=${DEFAULT_IMAGE_API_KEY:-}
+DEFAULT_PLANNER_API_URL=${DEFAULT_PLANNER_API_URL:-https://api.deepseek.com}
+DEFAULT_PLANNER_API_KEY=${DEFAULT_PLANNER_API_KEY:-}
+DEFAULT_PLANNER_MODEL=${DEFAULT_PLANNER_MODEL:-deepseek-v4-flash}
+
 DOCKER_LEGACY_API_URL_USED=${DOCKER_LEGACY_API_URL_USED:-false}
 if [ -n "$API_URL" ]; then
     DOCKER_LEGACY_API_URL_USED=true
@@ -18,11 +24,16 @@ if [ "$ENABLE_API_PROXY" = "true" ] && [ "$LOCK_API_PROXY" = "true" ]; then
 fi
 
 # 查找所有 js 文件并将占位符替换为运行时配置
-find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_API_URL_PLACEHOLDER__|$DEFAULT_API_URL|g" {} +
+find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_API_URL_PLACEHOLDER__|$DEFAULT_IMAGE_API_URL|g" {} +
 find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_API_PROXY_AVAILABLE_PLACEHOLDER__|$API_PROXY_AVAILABLE|g" {} +
 find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_API_PROXY_LOCKED_PLACEHOLDER__|$API_PROXY_LOCKED|g" {} +
 find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DOCKER_DEPLOYMENT_PLACEHOLDER__|true|g" {} +
 find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DOCKER_LEGACY_API_URL_USED_PLACEHOLDER__|$DOCKER_LEGACY_API_URL_USED|g" {} +
+find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_IMAGE_API_URL_PLACEHOLDER__|$DEFAULT_IMAGE_API_URL|g" {} +
+find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_IMAGE_API_KEY_PLACEHOLDER__|$DEFAULT_IMAGE_API_KEY|g" {} +
+find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_PLANNER_API_URL_PLACEHOLDER__|$DEFAULT_PLANNER_API_URL|g" {} +
+find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_PLANNER_API_KEY_PLACEHOLDER__|$DEFAULT_PLANNER_API_KEY|g" {} +
+find /usr/share/nginx/html/assets -type f -name "*.js" -exec sed -i "s|__VITE_DEFAULT_PLANNER_MODEL_PLACEHOLDER__|$DEFAULT_PLANNER_MODEL|g" {} +
 
 # 检查是否启用了 API 代理
 if [ "$ENABLE_API_PROXY" != "true" ]; then
