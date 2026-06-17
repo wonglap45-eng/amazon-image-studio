@@ -659,7 +659,7 @@ export async function callAmazonPlannerApi(options: {
   aPlusGenerationTier?: SizeTier
   signal?: AbortSignal
 }): Promise<PlannerApiResult> {
-  const model = options.model?.trim() || options.profile.model.trim() || (options.profile.apiMode === 'chat' ? DEFAULT_CHAT_MODEL : DEFAULT_RESPONSES_MODEL)
+  const model = (options.model?.trim() || options.profile.model.trim() || (options.profile.apiMode === 'chat' ? DEFAULT_CHAT_MODEL : DEFAULT_RESPONSES_MODEL)).toLowerCase()
   const mode = options.mode ?? 'listing'
   const aPlusType = options.aPlusType ?? 'standard-large'
   const aPlusGenerationTier = options.aPlusGenerationTier ?? '2K'
